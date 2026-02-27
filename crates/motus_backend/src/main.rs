@@ -10,14 +10,17 @@ use tower_http::cors::CorsLayer;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Carica variabili d'ambiente (se presente .env)
+    // Carica variabili d'ambiente (cerca .env anche nelle directory parent)
     dotenvy::dotenv().ok();
+    if dotenvy::from_filename("crates/motus_backend/.env").is_ok() {
+        println!("Loaded .env from crates/motus_backend");
+    }
 
     println!("MOTUS NOVA Backend Starting...");
 
     // Connessione al database usando la stringa configurata
     let database_url = env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://postgres:password@localhost:5433/motus_nova".to_string());
+        .unwrap_or_else(|_| "postgres://postgres@localhost:5433/postgres".to_string());
     
     let pool = PgPoolOptions::new()
         .max_connections(5)

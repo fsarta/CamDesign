@@ -19,7 +19,7 @@ pub struct Project {
 pub fn router() -> Router<PgPool> {
     Router::new()
         .route("/", get(list_projects).post(create_project))
-        .route("/:id", get(get_project))
+        .route("/{id}", get(get_project))
 }
 
 async fn list_projects(State(pool): State<PgPool>) -> Result<Json<Vec<Project>>, (StatusCode, String)> {
