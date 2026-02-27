@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: motus_postgres
+    environment:
+      POSTGRES_USER: motus_db
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: motus_nova
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
