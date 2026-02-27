@@ -14,6 +14,7 @@ pub enum MotionLaw {
     // Add other laws here later
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MotionEvaluation {
     pub s: f64,
     pub v: f64,

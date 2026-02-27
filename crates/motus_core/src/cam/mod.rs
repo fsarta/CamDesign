@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+pub mod calculation;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RotationDirection {
     Clockwise,
