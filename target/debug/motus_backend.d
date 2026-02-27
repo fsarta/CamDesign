@@ -1,0 +1,1 @@
+C:\Users\fsart\Documents\FRANCESCO\projects\CamDesign\target\debug\motus_backend.exe: C:\Users\fsart\Documents\FRANCESCO\projects\CamDesign\crates\motus_backend\src\main.rs C:\Users\fsart\Documents\FRANCESCO\projects\CamDesign\crates\motus_backend\src\routes_projects.rs
