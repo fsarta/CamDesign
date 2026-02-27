@@ -1,0 +1,14 @@
+C:\Users\fsart\Documents\FRANCESCO\projects\CamDesign\target\debug\deps\serde-bf73b34c5c32d345.d: C:\Users\fsart\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\lib.rs C:\Users\fsart\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\integer128.rs C:\Users\fsart\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\mod.rs C:\Users\fsart\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\de.rs C:\Users\fsart\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\ser.rs C:\Users\fsart\Documents\FRANCESCO\projects\CamDesign\target\debug\build\serde-64f714cb3b5017d6\out/private.rs
+
+C:\Users\fsart\Documents\FRANCESCO\projects\CamDesign\target\debug\deps\libserde-bf73b34c5c32d345.rlib: C:\Users\fsart\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\lib.rs C:\Users\fsart\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\integer128.rs C:\Users\fsart\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\mod.rs C:\Users\fsart\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\de.rs C:\Users\fsart\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\ser.rs C:\Users\fsart\Documents\FRANCESCO\projects\CamDesign\target\debug\build\serde-64f714cb3b5017d6\out/private.rs
+
+C:\Users\fsart\Documents\FRANCESCO\projects\CamDesign\target\debug\deps\libserde-bf73b34c5c32d345.rmeta: C:\Users\fsart\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\lib.rs C:\Users\fsart\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\integer128.rs C:\Users\fsart\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\mod.rs C:\Users\fsart\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\de.rs C:\Users\fsart\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\ser.rs C:\Users\fsart\Documents\FRANCESCO\projects\CamDesign\target\debug\build\serde-64f714cb3b5017d6\out/private.rs
+
+C:\Users\fsart\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\lib.rs:
+C:\Users\fsart\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\integer128.rs:
+C:\Users\fsart\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\mod.rs:
+C:\Users\fsart\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\de.rs:
+C:\Users\fsart\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\serde-1.0.228\src\private\ser.rs:
+C:\Users\fsart\Documents\FRANCESCO\projects\CamDesign\target\debug\build\serde-64f714cb3b5017d6\out/private.rs:
+
+# env-dep:OUT_DIR=C:\\Users\\fsart\\Documents\\FRANCESCO\\projects\\CamDesign\\target\\debug\\build\\serde-64f714cb3b5017d6\\out
