@@ -23,10 +23,10 @@ interface KinematicChartProps {
 export const KinematicChart: React.FC<KinematicChartProps> = ({ data }) => {
     // Convert basic points into a format Recharts likes
     const chartData = data.map((point, index) => {
-        // Normalizing index to represent tau (0 to 1) roughly
-        const tau = index / (Math.max(1, data.length - 1));
+        // Map index to angle in degrees (0 to 360)
+        const angle = (index / (Math.max(1, data.length - 1))) * 360;
         return {
-            tau: tau.toFixed(2),
+            angle: Math.round(angle),
             position: Number(point.s.toFixed(4)),
             velocity: Number(point.v.toFixed(4)),
             acceleration: Number(point.a.toFixed(4)),
@@ -37,10 +37,10 @@ export const KinematicChart: React.FC<KinematicChartProps> = ({ data }) => {
     const CustomTooltip = ({ active, payload, label }: any) => {
         if (active && payload && payload.length) {
             return (
-                <div className="glass-panel" style={{ padding: '1rem', border: '1px solid rgba(255,255,255,0.2)' }}>
-                    <p style={{ margin: 0, fontWeight: 600, color: '#f8fafc' }}>τ: {label}</p>
+                <div className="glass-panel" style={{ padding: '0.75rem', border: '1px solid rgba(255,255,255,0.2)', minWidth: '100px' }}>
+                    <p style={{ margin: 0, fontWeight: 600, color: '#f8fafc', fontSize: '0.85rem' }}>φ: {label}°</p>
                     {payload.map((entry: any, index: number) => (
-                        <p key={`item-${index}`} style={{ margin: '0.25rem 0 0 0', color: entry.color, fontSize: '0.9rem' }}>
+                        <p key={`item-${index}`} style={{ margin: '0.15rem 0 0 0', color: entry.color, fontSize: '0.8rem' }}>
                             {entry.name}: {entry.value}
                         </p>
                     ))}
@@ -50,67 +50,55 @@ export const KinematicChart: React.FC<KinematicChartProps> = ({ data }) => {
         return null;
     };
 
+    const chartConfig = [
+        { key: 'position', label: 'Position (s)', color: '#3b82f6' },
+        { key: 'velocity', label: 'Velocity (v)', color: '#10b981' },
+        { key: 'acceleration', label: 'Acceleration (a)', color: '#f59e0b' },
+        { key: 'jerk', label: 'Jerk (j)', color: '#ef4444' },
+    ];
+
     return (
-        <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-
-            {/* Upper Charts: S and V */}
-            <div style={{ display: 'flex', flex: 1, gap: '1rem' }}>
-                <div style={{ flex: 1, position: 'relative' }}>
-                    <h4 style={{ position: 'absolute', top: 0, left: 20, zIndex: 10, fontSize: '0.8rem', color: '#94a3b8' }}>Position (s)</h4>
+        <div style={{
+            width: '100%',
+            height: '100%',
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gridTemplateRows: '1fr 1fr',
+            gap: '0.5rem',
+        }}>
+            {chartConfig.map(cfg => (
+                <div key={cfg.key} style={{ position: 'relative', minHeight: 0, minWidth: 0 }}>
+                    <h4 style={{
+                        position: 'absolute', top: 4, left: 16, zIndex: 10,
+                        fontSize: '0.75rem', color: '#94a3b8', margin: 0,
+                    }}>{cfg.label}</h4>
                     <ResponsiveContainer width="100%" height="100%">
                         <LineChart data={chartData} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-                            <XAxis dataKey="tau" stroke="rgba(255,255,255,0.3)" tick={{ fill: '#94a3b8' }} />
-                            <YAxis stroke="rgba(255,255,255,0.3)" tick={{ fill: '#94a3b8' }} />
+                            <XAxis
+                                dataKey="angle"
+                                stroke="rgba(255,255,255,0.3)"
+                                tick={{ fill: '#94a3b8', fontSize: 10 }}
+                                tickCount={7}
+                            />
+                            <YAxis
+                                stroke="rgba(255,255,255,0.3)"
+                                tick={{ fill: '#94a3b8', fontSize: 10 }}
+                                width={45}
+                            />
                             <Tooltip content={<CustomTooltip />} />
-                            <Line type="monotone" dataKey="position" stroke="#3b82f6" strokeWidth={3} dot={false} isAnimationActive={true} />
+                            <Line
+                                type="monotone"
+                                dataKey={cfg.key}
+                                stroke={cfg.color}
+                                strokeWidth={2}
+                                dot={false}
+                                isAnimationActive={false}
+                            />
                         </LineChart>
                     </ResponsiveContainer>
                 </div>
-
-                <div style={{ flex: 1, position: 'relative' }}>
-                    <h4 style={{ position: 'absolute', top: 0, left: 20, zIndex: 10, fontSize: '0.8rem', color: '#94a3b8' }}>Velocity (v)</h4>
-                    <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={chartData} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-                            <XAxis dataKey="tau" stroke="rgba(255,255,255,0.3)" tick={{ fill: '#94a3b8' }} />
-                            <YAxis stroke="rgba(255,255,255,0.3)" tick={{ fill: '#94a3b8' }} />
-                            <Tooltip content={<CustomTooltip />} />
-                            <Line type="monotone" dataKey="velocity" stroke="#10b981" strokeWidth={3} dot={false} isAnimationActive={true} />
-                        </LineChart>
-                    </ResponsiveContainer>
-                </div>
-            </div>
-
-            {/* Lower Charts: A and J */}
-            <div style={{ display: 'flex', flex: 1, gap: '1rem' }}>
-                <div style={{ flex: 1, position: 'relative' }}>
-                    <h4 style={{ position: 'absolute', top: 0, left: 20, zIndex: 10, fontSize: '0.8rem', color: '#94a3b8' }}>Acceleration (a)</h4>
-                    <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={chartData} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-                            <XAxis dataKey="tau" stroke="rgba(255,255,255,0.3)" tick={{ fill: '#94a3b8' }} />
-                            <YAxis stroke="rgba(255,255,255,0.3)" tick={{ fill: '#94a3b8' }} />
-                            <Tooltip content={<CustomTooltip />} />
-                            <Line type="monotone" dataKey="acceleration" stroke="#f59e0b" strokeWidth={3} dot={false} isAnimationActive={true} />
-                        </LineChart>
-                    </ResponsiveContainer>
-                </div>
-
-                <div style={{ flex: 1, position: 'relative' }}>
-                    <h4 style={{ position: 'absolute', top: 0, left: 20, zIndex: 10, fontSize: '0.8rem', color: '#94a3b8' }}>Jerk (j)</h4>
-                    <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={chartData} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-                            <XAxis dataKey="tau" stroke="rgba(255,255,255,0.3)" tick={{ fill: '#94a3b8' }} />
-                            <YAxis stroke="rgba(255,255,255,0.3)" tick={{ fill: '#94a3b8' }} />
-                            <Tooltip content={<CustomTooltip />} />
-                            <Line type="monotone" dataKey="jerk" stroke="#ef4444" strokeWidth={3} dot={false} isAnimationActive={true} />
-                        </LineChart>
-                    </ResponsiveContainer>
-                </div>
-            </div>
-
+            ))}
         </div>
     );
 };

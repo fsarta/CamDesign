@@ -1,48 +1,110 @@
-import { useEffect, useState } from 'react';
-import init, { evaluate_segment } from 'motus_wasm';
-import { Activity, Settings, Maximize2, Play, GitMerge } from 'lucide-react';
+import { useEffect, useState, useCallback } from 'react';
+import init, { evaluate_profile } from 'motus_wasm';
+import { Activity, Settings, Maximize2, Play, GitMerge, Layers } from 'lucide-react';
 import { KinematicChart } from './components/KinematicChart';
 import type { MotionPoint } from './components/KinematicChart';
+import { SegmentEditor } from './components/SegmentEditor';
+import type { SegmentDef } from './components/SegmentEditor';
 import { fetchProjects } from './api';
 import type { Project } from './api';
 import './index.css';
+
+// Default composed profile: Rise + Dwell + Return
+const DEFAULT_SEGMENTS: SegmentDef[] = [
+  {
+    id: crypto.randomUUID(),
+    name: "Rise",
+    law: "Cycloidal",
+    phi_start: 0,
+    phi_end: 120,
+    stroke: 50,
+    s_start: 0,
+    boundary_conditions: {
+      start_velocity: { Fixed: 0.0 }, end_velocity: { Fixed: 0.0 },
+      start_acceleration: { Fixed: 0.0 }, end_acceleration: { Fixed: 0.0 },
+      start_jerk: "Free", end_jerk: "Free",
+    },
+    color: '#3b82f6',
+    metadata: {}
+  },
+  {
+    id: crypto.randomUUID(),
+    name: "Dwell",
+    law: "Dwell",
+    phi_start: 120,
+    phi_end: 180,
+    stroke: 0,
+    s_start: 50,
+    boundary_conditions: {
+      start_velocity: { Fixed: 0.0 }, end_velocity: { Fixed: 0.0 },
+      start_acceleration: { Fixed: 0.0 }, end_acceleration: { Fixed: 0.0 },
+      start_jerk: "Free", end_jerk: "Free",
+    },
+    color: '#10b981',
+    metadata: {}
+  },
+  {
+    id: crypto.randomUUID(),
+    name: "Return",
+    law: "Polynomial345",
+    phi_start: 180,
+    phi_end: 360,
+    stroke: -50,
+    s_start: 50,
+    boundary_conditions: {
+      start_velocity: { Fixed: 0.0 }, end_velocity: { Fixed: 0.0 },
+      start_acceleration: { Fixed: 0.0 }, end_acceleration: { Fixed: 0.0 },
+      start_jerk: "Free", end_jerk: "Free",
+    },
+    color: '#f59e0b',
+    metadata: {}
+  },
+];
 
 function App() {
   const [wasmReady, setWasmReady] = useState(false);
   const [evalResult, setEvalResult] = useState<MotionPoint[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [segments, setSegments] = useState<SegmentDef[]>(DEFAULT_SEGMENTS);
+  const [calcTimeMs, setCalcTimeMs] = useState<number>(0);
 
-  // Function to calculate curve
-  const calculateProfile = () => {
+  // Evaluate composed profile in WASM
+  const calculateProfile = useCallback(() => {
+    if (!wasmReady) return;
     try {
-      // Mock a simple segment definition based on motus_core segment types
-      const segmentDef = {
-        id: "123e4567-e89b-12d3-a456-426614174000",
-        name: "Test segment",
-        law: "Polynomial345",
-        phi_start: 0.0,
-        phi_end: 120.0,
-        stroke: 100.0,
-        s_start: 0.0,
-        boundary_conditions: {
-          start_velocity: { Fixed: 0.0 },
-          end_velocity: { Fixed: 0.0 },
-          start_acceleration: { Fixed: 0.0 },
-          end_acceleration: { Fixed: 0.0 },
-          start_jerk: "Free",
-          end_jerk: "Free",
-        },
-        color: null,
-        metadata: {}
+      // Sanitize segments for WASM: Rust expects color: Option<[u8;3]>, not CSS strings
+      const wasmSegments = segments.map(seg => ({
+        ...seg,
+        name: seg.name || null,      // Rust expects Option<String>
+        color: null,                 // Rust expects Option<[u8;3]>, strip CSS color
+      }));
+
+      const profile = {
+        id: "00000000-0000-0000-0000-000000000001",
+        name: "Interactive Profile",
+        segments: wasmSegments,
+        total_stroke: Math.max(...segments.map(s => s.s_start + Math.abs(s.stroke)), 0),
+        motion_type: "Rise",
+        cycle_angle: 2 * Math.PI, // 360 degrees in radians
+        resolution: 360,
       };
 
-      // Pass to WASM - evaluate 100 steps for smooth charting
-      const result = evaluate_segment(segmentDef, 100);
+      const t0 = performance.now();
+      const result = evaluate_profile(profile, 360);
+      const t1 = performance.now();
+      setCalcTimeMs(Math.round((t1 - t0) * 100) / 100);
       setEvalResult(result);
     } catch (err) {
-      console.error("WASM Evaluate Error:", err);
+      console.error("WASM Profile Evaluate Error:", err);
     }
-  };
+  }, [wasmReady, segments]);
+
+  // Recalculate when segments change
+  useEffect(() => {
+    if (wasmReady) {
+      calculateProfile();
+    }
+  }, [calculateProfile, wasmReady]);
 
   useEffect(() => {
     // 1. Fetch Backend Data
@@ -54,8 +116,6 @@ function App() {
     init().then(() => {
       console.log("WASM Initialized Successfully");
       setWasmReady(true);
-      // Auto-calculate on boot
-      calculateProfile();
     });
   }, []);
 
@@ -71,7 +131,7 @@ function App() {
         <div className="actions" style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
           {projects.length > 0 && (
             <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-              Active Project: <strong>{projects[0].name}</strong>
+              Project: <strong>{projects[0].name}</strong>
             </span>
           )}
           <button className="glass-button">
@@ -80,7 +140,7 @@ function App() {
           </button>
           <button className="glass-button primary pulse" onClick={calculateProfile} disabled={!wasmReady}>
             <Play size={16} />
-            Calculate Profile
+            Recalculate
           </button>
         </div>
       </header>
@@ -92,40 +152,51 @@ function App() {
         <aside className="sidebar glass-panel">
           <div className="panel-body">
             <h2 className="panel-header">
-              <Settings size={20} /> Parameters
+              <Layers size={20} /> Motion Profile
             </h2>
 
             <div className="info-card">
-              WebAssembly Core: {wasmReady ? <span style={{ color: 'var(--success)' }}>Active</span> : <span style={{ color: 'var(--danger)' }}>Loading...</span>}
+              WASM Engine: {wasmReady ? <span style={{ color: 'var(--success)' }}>Active</span> : <span style={{ color: 'var(--danger)' }}>Loading...</span>}
             </div>
 
+            {/* Segment Editor */}
             <div style={{ marginTop: '1rem' }}>
-              <h3 style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '0.5rem' }}>Math Diagnostics</h3>
-              {evalResult.length > 0 ? (
-                <div>
-                  <div className="param-row">
-                    <span className="param-label">Law</span>
-                    <span className="param-value">Polynomial 3-4-5</span>
-                  </div>
-                  <div className="param-row">
-                    <span className="param-label">Max Velocity</span>
-                    <span className="param-value">{Math.max(...evalResult.map(r => r.v)).toFixed(3)}</span>
-                  </div>
-                  <div className="param-row">
-                    <span className="param-label">Max Accel</span>
-                    <span className="param-value">{Math.max(...evalResult.map(r => r.a)).toFixed(3)}</span>
-                  </div>
-                  <div className="param-row">
-                    <span className="param-label">Samples</span>
-                    <span className="param-value">{evalResult.length}</span>
-                  </div>
-                </div>
-              ) : (
-                <div className="param-row">
-                  <span className="param-label" style={{ color: 'var(--text-secondary)' }}>Awaiting calculation...</span>
-                </div>
-              )}
+              <SegmentEditor segments={segments} onSegmentsChange={setSegments} />
             </div>
+
+            {/* Diagnostics */}
+            {evalResult.length > 0 && (
+              <div style={{ marginTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '0.75rem' }}>
+                <h3 style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '0.5rem' }}>
+                  <Settings size={14} style={{ verticalAlign: 'middle', marginRight: '0.25rem' }} />
+                  Diagnostics
+                </h3>
+                <div className="param-row">
+                  <span className="param-label">Segments</span>
+                  <span className="param-value">{segments.length}</span>
+                </div>
+                <div className="param-row">
+                  <span className="param-label">Max Position</span>
+                  <span className="param-value">{Math.max(...evalResult.map(r => r.s)).toFixed(2)} mm</span>
+                </div>
+                <div className="param-row">
+                  <span className="param-label">Max |Velocity|</span>
+                  <span className="param-value">{Math.max(...evalResult.map(r => Math.abs(r.v))).toFixed(3)}</span>
+                </div>
+                <div className="param-row">
+                  <span className="param-label">Max |Accel|</span>
+                  <span className="param-value">{Math.max(...evalResult.map(r => Math.abs(r.a))).toFixed(3)}</span>
+                </div>
+                <div className="param-row">
+                  <span className="param-label">Calc Time</span>
+                  <span className="param-value">{calcTimeMs} ms</span>
+                </div>
+                <div className="param-row">
+                  <span className="param-label">Samples</span>
+                  <span className="param-value">{evalResult.length}</span>
+                </div>
+              </div>
+            )}
 
           </div>
         </aside>
@@ -133,7 +204,7 @@ function App() {
         {/* Math Engine Canvas */}
         <section className="canvas-area glass-panel" style={{ display: 'flex', flexDirection: 'column' }}>
           <div className="panel-header" style={{ padding: '1rem 1rem 0' }}>
-            Kinematic Visualization
+            Kinematic Visualization — Composed Profile (360°)
             <div style={{ marginLeft: 'auto' }}>
               <button className="glass-button" style={{ padding: '0.25rem 0.5rem' }}>
                 <Maximize2 size={16} />
