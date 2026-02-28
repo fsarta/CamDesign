@@ -11,7 +11,10 @@ pub enum MotionLaw {
     ModifiedTrapezoid,
     Cycloidal,
     Polynomial345,
-    // Add other laws here later
+    Harmonic,
+    DoubleHarmonic,
+    /// Cubic Bézier: control points P0=(0,0), P1=(cx1,cy1), P2=(cx2,cy2), P3=(1,1)
+    Bezier { cx1: f64, cy1: f64, cx2: f64, cy2: f64 },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,10 +48,19 @@ impl MotionEvaluator for MotionLaw {
             MotionLaw::Polynomial345 => vdi2143::polynomial_345(tau),
             MotionLaw::ModifiedSine => vdi2143::modified_sine(tau),
             MotionLaw::ModifiedTrapezoid => vdi2143::modified_trapezoid(tau),
+            MotionLaw::Harmonic => vdi2143::harmonic(tau),
+            MotionLaw::DoubleHarmonic => vdi2143::double_harmonic(tau),
+            MotionLaw::Bezier { cx1, cy1, cx2, cy2 } => {
+                vdi2143::bezier_cubic(tau, *cx1, *cy1, *cx2, *cy2)
+            }
             MotionLaw::UniformAcceleration { a } => {
-                // uniform acc is not a standard VDI basic rise, but useful.
-                // Simple placeholder return
-                MotionEvaluation { s: 0.0, v: 0.0, a: *a, j: 0.0 }
+                // Uniform acceleration: s = ½·a·τ², v = a·τ
+                MotionEvaluation {
+                    s: 0.5 * a * tau * tau,
+                    v: a * tau,
+                    a: *a,
+                    j: 0.0,
+                }
             }
         }
     }

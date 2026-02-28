@@ -19,15 +19,23 @@ export interface SegmentDef {
     };
     color: string | null;
     metadata: Record<string, string>;
+    // Bezier control points (only used when law === 'Bezier')
+    bezier_cx1?: number;
+    bezier_cy1?: number;
+    bezier_cx2?: number;
+    bezier_cy2?: number;
 }
 
 const AVAILABLE_LAWS = [
     { value: 'Dwell', label: 'Dwell (Sosta)' },
-    { value: 'Cycloidal', label: 'Cycloidal' },
+    { value: 'Cycloidal', label: 'Cycloidal (VDI 2143)' },
     { value: 'Polynomial345', label: 'Polynomial 3-4-5' },
-    { value: 'ModifiedSine', label: 'Modified Sine' },
-    { value: 'ModifiedTrapezoid', label: 'Modified Trapezoid' },
+    { value: 'ModifiedSine', label: 'Modified Sine (VDI 2143)' },
+    { value: 'ModifiedTrapezoid', label: 'Modified Trapezoid (VDI 2143)' },
+    { value: 'Harmonic', label: 'Simple Harmonic' },
+    { value: 'DoubleHarmonic', label: 'Double Harmonic' },
     { value: 'ConstantVelocity', label: 'Constant Velocity' },
+    { value: 'Bezier', label: 'Bézier Cubic' },
 ];
 
 const SEGMENT_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'];
@@ -71,7 +79,11 @@ export const SegmentEditor: React.FC<SegmentEditorProps> = ({ segments, onSegmen
                 end_jerk: "Free",
             },
             color: SEGMENT_COLORS[colorIndex],
-            metadata: {}
+            metadata: {},
+            bezier_cx1: 0.25,
+            bezier_cy1: 0.1,
+            bezier_cx2: 0.25,
+            bezier_cy2: 1.0,
         };
         const updated = [...segments, newSeg];
         onSegmentsChange(updated);
@@ -187,6 +199,23 @@ export const SegmentEditor: React.FC<SegmentEditorProps> = ({ segments, onSegmen
                                     <NumericField label="S Start (mm)" value={seg.s_start}
                                         onChange={v => handleFieldChange(seg.id, 's_start', v)} min={-500} max={500} step={0.5} />
                                 </div>
+
+                                {/* Bezier Control Points */}
+                                {seg.law === 'Bezier' && (
+                                    <div style={{ marginTop: '0.25rem' }}>
+                                        <label style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: '0.25rem', display: 'block' }}>Bézier Control Points</label>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+                                            <NumericField label="P1.x" value={seg.bezier_cx1 ?? 0.25}
+                                                onChange={v => handleFieldChange(seg.id, 'bezier_cx1' as keyof SegmentDef, v)} min={0} max={1} step={0.01} />
+                                            <NumericField label="P1.y" value={seg.bezier_cy1 ?? 0.1}
+                                                onChange={v => handleFieldChange(seg.id, 'bezier_cy1' as keyof SegmentDef, v)} min={-0.5} max={1.5} step={0.01} />
+                                            <NumericField label="P2.x" value={seg.bezier_cx2 ?? 0.25}
+                                                onChange={v => handleFieldChange(seg.id, 'bezier_cx2' as keyof SegmentDef, v)} min={0} max={1} step={0.01} />
+                                            <NumericField label="P2.y" value={seg.bezier_cy2 ?? 1.0}
+                                                onChange={v => handleFieldChange(seg.id, 'bezier_cy2' as keyof SegmentDef, v)} min={-0.5} max={1.5} step={0.01} />
+                                        </div>
+                                    </div>
+                                )}
 
                                 {/* Delete */}
                                 {segments.length > 1 && (

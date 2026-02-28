@@ -12,6 +12,7 @@
   --accent-hover: #60a5fa;
   --success: #10b981;
   --danger: #ef4444;
+  --warning: #f59e0b;
 
   /* Geometry & Spacing */
   --radius-sm: 8px;
@@ -83,7 +84,7 @@ body {
 /* Layout */
 .app-container {
   display: grid;
-  grid-template-rows: 64px 1fr;
+  grid-template-rows: 56px 1fr;
   height: 100vh;
   width: 100vw;
 }
@@ -94,7 +95,7 @@ body {
   align-items: center;
   padding: 0 var(--spacing-lg);
   border-bottom: 1px solid var(--surface-border);
-  background: rgba(15, 23, 42, 0.8);
+  background: rgba(15, 23, 42, 0.85);
   backdrop-filter: blur(8px);
   z-index: 10;
 }
@@ -103,7 +104,7 @@ body {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  font-size: 1.25rem;
+  font-size: 1.15rem;
   font-weight: 700;
   letter-spacing: 0.5px;
   color: var(--text-primary);
@@ -115,28 +116,29 @@ body {
 
 .main-content {
   display: grid;
-  grid-template-columns: 320px 1fr;
-  gap: var(--spacing-lg);
-  padding: var(--spacing-lg);
-  height: calc(100vh - 64px);
+  grid-template-columns: 300px 1fr;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  height: calc(100vh - 56px);
   overflow: hidden;
 }
 
 .sidebar {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-md);
   height: 100%;
+  overflow: hidden;
 }
 
 .panel-header {
-  font-size: 1.1rem;
+  font-size: 1rem;
   font-weight: 600;
   margin-bottom: var(--spacing-sm);
   color: var(--text-primary);
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  flex-shrink: 0;
 }
 
 .panel-body {
@@ -144,13 +146,31 @@ body {
   height: 100%;
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-md);
+  gap: var(--spacing-sm);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Custom scrollbar */
+.panel-body::-webkit-scrollbar {
+  width: 4px;
+}
+.panel-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.panel-body::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+}
+.panel-body::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
 }
 
 .canvas-area {
   display: flex;
   flex-direction: column;
   height: 100%;
+  overflow: hidden;
 }
 
 .chart-placeholder {
@@ -174,10 +194,35 @@ body {
   background: rgba(0,0,0,0.15);
 }
 
+/* Layout Toggle Buttons */
+.layout-toggle-btn {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary);
+  padding: 0.3rem;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.layout-toggle-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
+.layout-toggle-btn.active {
+  background: var(--accent-color);
+  border-color: var(--accent-hover);
+  color: var(--text-primary);
+}
+
 /* Micro animations */
 @keyframes pulseGlow {
   0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
-  70% { box-shadow: 0 0 0 10px rgba(59, 130, 246, 0); }
+  70% { box-shadow: 0 0 0 8px rgba(59, 130, 246, 0); }
   100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
 }
 
@@ -189,7 +234,7 @@ body {
   background: rgba(0, 0, 0, 0.2);
   padding: var(--spacing-sm) var(--spacing-md);
   border-radius: var(--radius-sm);
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   color: var(--text-secondary);
 }
 
@@ -197,16 +242,36 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.5rem 0;
-  border-bottom: 1px solid rgba(255,255,255,0.05);
+  padding: 0.35rem 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
 }
 
 .param-label {
   font-weight: 500;
-  font-size: 0.9rem;
+  font-size: 0.8rem;
 }
 
 .param-value {
   color: var(--accent-color);
   font-variant-numeric: tabular-nums;
+  font-size: 0.8rem;
+}
+
+/* Select styling */
+select option {
+  background: #1e293b;
+  color: #e6edf3;
+}
+
+/* Number input styling */
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  opacity: 0.5;
+}
+input[type="number"]:focus {
+  outline: none;
+  border-color: var(--accent-color) !important;
 }

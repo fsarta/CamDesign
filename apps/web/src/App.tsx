@@ -1,8 +1,8 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import init, { evaluate_profile } from 'motus_wasm';
-import { Activity, Settings, Maximize2, Play, GitMerge, Layers } from 'lucide-react';
+import { Activity, Settings, Play, GitMerge, Layers, LayoutGrid, AlignJustify } from 'lucide-react';
 import { KinematicChart } from './components/KinematicChart';
-import type { MotionPoint } from './components/KinematicChart';
+import type { MotionPoint, ChartLayout, SegmentBoundary } from './components/KinematicChart';
 import { SegmentEditor } from './components/SegmentEditor';
 import type { SegmentDef } from './components/SegmentEditor';
 import { fetchProjects } from './api';
@@ -67,17 +67,49 @@ function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [segments, setSegments] = useState<SegmentDef[]>(DEFAULT_SEGMENTS);
   const [calcTimeMs, setCalcTimeMs] = useState<number>(0);
+  const [chartLayout, setChartLayout] = useState<ChartLayout>('vertical');
+
+  // Convert segments to boundary markers for chart overlay
+  const segmentBoundaries: SegmentBoundary[] = useMemo(() =>
+    segments.map(seg => ({
+      phi_start: seg.phi_start,
+      phi_end: seg.phi_end,
+      name: seg.name,
+      color: seg.color || '#3b82f6',
+    })),
+    [segments]
+  );
 
   // Evaluate composed profile in WASM
   const calculateProfile = useCallback(() => {
     if (!wasmReady) return;
     try {
       // Sanitize segments for WASM: Rust expects color: Option<[u8;3]>, not CSS strings
-      const wasmSegments = segments.map(seg => ({
-        ...seg,
-        name: seg.name || null,      // Rust expects Option<String>
-        color: null,                 // Rust expects Option<[u8;3]>, strip CSS color
-      }));
+      // Also convert Bezier law string to Rust enum format
+      const wasmSegments = segments.map(seg => {
+        let law: any = seg.law;
+        if (seg.law === 'Bezier') {
+          law = {
+            Bezier: {
+              cx1: seg.bezier_cx1 ?? 0.25,
+              cy1: seg.bezier_cy1 ?? 0.1,
+              cx2: seg.bezier_cx2 ?? 0.25,
+              cy2: seg.bezier_cy2 ?? 1.0,
+            }
+          };
+        }
+        return {
+          ...seg,
+          law,
+          name: seg.name || null,
+          color: null,
+          // Strip UI-only Bezier fields
+          bezier_cx1: undefined,
+          bezier_cy1: undefined,
+          bezier_cx2: undefined,
+          bezier_cy2: undefined,
+        };
+      });
 
       const profile = {
         id: "00000000-0000-0000-0000-000000000001",
@@ -85,12 +117,12 @@ function App() {
         segments: wasmSegments,
         total_stroke: Math.max(...segments.map(s => s.s_start + Math.abs(s.stroke)), 0),
         motion_type: "Rise",
-        cycle_angle: 2 * Math.PI, // 360 degrees in radians
+        cycle_angle: 2 * Math.PI,
         resolution: 360,
       };
 
       const t0 = performance.now();
-      const result = evaluate_profile(profile, 360);
+      const result = evaluate_profile(profile, 720); // Higher resolution for smoother curves
       const t1 = performance.now();
       setCalcTimeMs(Math.round((t1 - t0) * 100) / 100);
       setEvalResult(result);
@@ -107,12 +139,7 @@ function App() {
   }, [calculateProfile, wasmReady]);
 
   useEffect(() => {
-    // 1. Fetch Backend Data
-    fetchProjects().then(data => {
-      setProjects(data);
-    });
-
-    // 2. Initialize WebAssembly environment
+    fetchProjects().then(data => setProjects(data));
     init().then(() => {
       console.log("WASM Initialized Successfully");
       setWasmReady(true);
@@ -150,7 +177,7 @@ function App() {
 
         {/* Sidebar */}
         <aside className="sidebar glass-panel">
-          <div className="panel-body">
+          <div className="panel-body" style={{ overflowY: 'auto' }}>
             <h2 className="panel-header">
               <Layers size={20} /> Motion Profile
             </h2>
@@ -197,24 +224,38 @@ function App() {
                 </div>
               </div>
             )}
-
           </div>
         </aside>
 
         {/* Math Engine Canvas */}
         <section className="canvas-area glass-panel" style={{ display: 'flex', flexDirection: 'column' }}>
-          <div className="panel-header" style={{ padding: '1rem 1rem 0' }}>
+          <div className="panel-header" style={{ padding: '0.75rem 1rem 0' }}>
             Kinematic Visualization — Composed Profile (360°)
-            <div style={{ marginLeft: 'auto' }}>
-              <button className="glass-button" style={{ padding: '0.25rem 0.5rem' }}>
-                <Maximize2 size={16} />
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.25rem' }}>
+              <button
+                className={`layout-toggle-btn ${chartLayout === 'vertical' ? 'active' : ''}`}
+                onClick={() => setChartLayout('vertical')}
+                title="Vertical layout (stacked)"
+              >
+                <AlignJustify size={15} />
+              </button>
+              <button
+                className={`layout-toggle-btn ${chartLayout === 'grid' ? 'active' : ''}`}
+                onClick={() => setChartLayout('grid')}
+                title="Grid layout (2×2)"
+              >
+                <LayoutGrid size={15} />
               </button>
             </div>
           </div>
 
-          <div style={{ flex: 1, padding: '1rem', minHeight: 0 }}>
+          <div style={{ flex: 1, padding: '0.5rem 1rem 1rem', minHeight: 0 }}>
             {evalResult.length > 0 ? (
-              <KinematicChart data={evalResult} />
+              <KinematicChart
+                data={evalResult}
+                layout={chartLayout}
+                segmentBoundaries={segmentBoundaries}
+              />
             ) : (
               <div className="chart-placeholder" style={{ height: '100%', margin: 0 }}>
                 <Activity size={64} style={{ opacity: 0.2, marginBottom: '1rem' }} />
