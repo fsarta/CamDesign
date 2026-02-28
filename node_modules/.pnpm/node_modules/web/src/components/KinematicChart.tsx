@@ -39,18 +39,37 @@ const CHART_CONFIG = [
     { key: 'jerk', label: 'Jerk (j)', color: '#ef4444', unit: 'mm/rad³' },
 ] as const;
 
+// Shared sync ID for Recharts native cursor synchronization
+const SYNC_ID = 'motus-kinematic-sync';
+
+// Custom cursor line that renders a smooth vertical line following the mouse
+const SyncCursorLine = (props: any) => {
+    const { points, height } = props;
+    if (!points || points.length === 0) return null;
+    const x = points[0].x;
+    return (
+        <line
+            x1={x} y1={0}
+            x2={x} y2={height}
+            stroke="rgba(255, 255, 255, 0.5)"
+            strokeWidth={1}
+            strokeDasharray="3 3"
+        />
+    );
+};
+
 export const KinematicChart: React.FC<KinematicChartProps> = ({
     data,
     layout = 'vertical',
     segmentBoundaries = [],
 }) => {
-    const [activeAngle, setActiveAngle] = useState<number | null>(null);
+    const [activeData, setActiveData] = useState<Record<string, any> | null>(null);
 
-    // Convert data to Recharts format
+    // Convert data to Recharts format — use fractional angle for smooth interpolation
     const chartData = useMemo(() => data.map((point, index) => {
         const angle = (index / (Math.max(1, data.length - 1))) * 360;
         return {
-            angle: Math.round(angle),
+            angle: Number(angle.toFixed(1)),
             position: Number(point.s.toFixed(4)),
             velocity: Number(point.v.toFixed(4)),
             acceleration: Number(point.a.toFixed(4)),
@@ -58,24 +77,20 @@ export const KinematicChart: React.FC<KinematicChartProps> = ({
         };
     }), [data]);
 
-    // Lookup values at the active angle
-    const activeValues = useMemo(() => {
-        if (activeAngle === null || chartData.length === 0) return null;
-        // Find closest data point
-        const idx = Math.round((activeAngle / 360) * (chartData.length - 1));
-        const clamped = Math.max(0, Math.min(chartData.length - 1, idx));
-        return chartData[clamped];
-    }, [activeAngle, chartData]);
-
-    // Sync mouse across all charts
-    const handleMouseMove = useCallback((state: any) => {
-        if (state?.activeLabel !== undefined) {
-            setActiveAngle(Number(state.activeLabel));
+    // Handle tooltip activation from any chart — updates info bar
+    const handleTooltipUpdate = useCallback((state: any) => {
+        if (state?.activePayload && state.activePayload.length > 0) {
+            // Find corresponding full data at this index
+            const activeLabel = state.activeLabel;
+            const idx = chartData.findIndex(d => d.angle === activeLabel);
+            if (idx >= 0) {
+                setActiveData(chartData[idx]);
+            }
         }
-    }, []);
+    }, [chartData]);
 
     const handleMouseLeave = useCallback(() => {
-        setActiveAngle(null);
+        setActiveData(null);
     }, []);
 
     // Unique boundaries (avoid duplicate lines at shared edges)
@@ -112,20 +127,21 @@ export const KinematicChart: React.FC<KinematicChartProps> = ({
                 flexShrink: 0,
             }}>
                 <span style={{ color: '#94a3b8', fontWeight: 600 }}>
-                    φ = {activeAngle !== null ? `${activeAngle}°` : '—'}
+                    φ = {activeData !== null ? `${activeData.angle}°` : '—'}
                 </span>
-                {activeValues && CHART_CONFIG.map(cfg => (
+                {activeData && CHART_CONFIG.map(cfg => (
                     <span key={cfg.key} style={{ color: cfg.color }}>
                         {cfg.label.split(' ')[0]}:{' '}
-                        <strong>{(activeValues as any)[cfg.key]}</strong>
+                        <strong>{activeData[cfg.key]}</strong>
+                        <span style={{ opacity: 0.5, fontSize: '0.7rem', marginLeft: '2px' }}>{cfg.unit}</span>
                     </span>
                 ))}
-                {!activeValues && (
+                {!activeData && (
                     <span style={{ color: '#475569', fontStyle: 'italic' }}>Hover on a chart to see values</span>
                 )}
             </div>
 
-            {/* Charts */}
+            {/* Charts — all share syncId for pixel-perfect cursor sync */}
             <div style={{ ...containerStyle, flex: 1, minHeight: 0 }}>
                 {CHART_CONFIG.map((cfg, chartIdx) => {
                     const isLastChart = chartIdx === CHART_CONFIG.length - 1;
@@ -142,7 +158,7 @@ export const KinematicChart: React.FC<KinematicChartProps> = ({
                             <div style={{
                                 position: 'absolute',
                                 top: isVertical ? 2 : 4,
-                                left: 50,
+                                left: 56,
                                 zIndex: 10,
                                 fontSize: '0.7rem',
                                 color: cfg.color,
@@ -164,13 +180,14 @@ export const KinematicChart: React.FC<KinematicChartProps> = ({
                             <ResponsiveContainer width="100%" height="100%">
                                 <LineChart
                                     data={chartData}
+                                    syncId={SYNC_ID}
                                     margin={{
                                         top: isVertical ? 16 : 20,
                                         right: 10,
                                         left: 0,
                                         bottom: showXAxis ? 0 : -20,
                                     }}
-                                    onMouseMove={handleMouseMove}
+                                    onMouseMove={handleTooltipUpdate}
                                     onMouseLeave={handleMouseLeave}
                                 >
                                     <CartesianGrid
@@ -193,8 +210,12 @@ export const KinematicChart: React.FC<KinematicChartProps> = ({
                                         tickFormatter={(v: number) => v.toFixed(1)}
                                     />
 
-                                    {/* Tooltip hidden — values shown in unified panel */}
-                                    <Tooltip content={() => null} cursor={false} />
+                                    {/* Tooltip with cursor line — syncId synchronizes across charts */}
+                                    <Tooltip
+                                        content={() => null}
+                                        cursor={<SyncCursorLine />}
+                                        isAnimationActive={false}
+                                    />
 
                                     {/* Segment boundary lines */}
                                     {boundaryAngles.map(angle => (
@@ -207,16 +228,6 @@ export const KinematicChart: React.FC<KinematicChartProps> = ({
                                         />
                                     ))}
 
-                                    {/* Synchronized vertical cursor */}
-                                    {activeAngle !== null && (
-                                        <ReferenceLine
-                                            x={activeAngle}
-                                            stroke="rgba(255,255,255,0.6)"
-                                            strokeWidth={1}
-                                            strokeDasharray="2 2"
-                                        />
-                                    )}
-
                                     {/* Data line */}
                                     <Line
                                         type="monotone"
@@ -225,6 +236,12 @@ export const KinematicChart: React.FC<KinematicChartProps> = ({
                                         strokeWidth={isVertical ? 1.5 : 2}
                                         dot={false}
                                         isAnimationActive={false}
+                                        activeDot={{
+                                            r: 3,
+                                            stroke: cfg.color,
+                                            strokeWidth: 2,
+                                            fill: '#0f172a',
+                                        }}
                                     />
                                 </LineChart>
                             </ResponsiveContainer>
