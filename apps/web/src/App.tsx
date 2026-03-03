@@ -1,10 +1,10 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import init, { evaluate_profile, evaluate_cam_contour } from 'motus_wasm';
-import { Activity, Settings, Play, GitMerge, Layers, LayoutGrid, AlignJustify, Circle, Download, BarChart3 } from 'lucide-react';
+import init, { evaluate_profile, evaluate_cam_contour, evaluate_linear_cam_contour } from 'motus_wasm';
+import { Activity, Settings, Play, GitMerge, Layers, LayoutGrid, AlignJustify, Circle, Download, BarChart3, ArrowRight } from 'lucide-react';
 import { KinematicChart } from './components/KinematicChart';
 import type { MotionPoint, ChartLayout, SegmentBoundary } from './components/KinematicChart';
 import { CamContourChart } from './components/CamContourChart';
-import type { CamContourData } from './components/CamContourChart';
+import type { CamContourData, LinearCamContourData, CamDisplayType } from './components/CamContourChart';
 import { SegmentEditor } from './components/SegmentEditor';
 import type { SegmentDef } from './components/SegmentEditor';
 import { fetchProjects } from './api';
@@ -112,10 +112,15 @@ function App() {
   const [activeTab, setActiveTab] = useState<ViewTab>('kinematic');
 
   // Cam parameters
+  const [camType, setCamType] = useState<CamDisplayType>('rotary');
   const [camBaseRadius, setCamBaseRadius] = useState(60);
   const [camRollerRadius, setCamRollerRadius] = useState(10);
   const [camOffset, setCamOffset] = useState(0);
   const [camContour, setCamContour] = useState<CamContourData | null>(null);
+  // Linear cam params
+  const [camLength, setCamLength] = useState(300);
+  const [camGrooveDepth, setCamGrooveDepth] = useState(0);
+  const [linearContour, setLinearContour] = useState<LinearCamContourData | null>(null);
 
   // Segment boundaries for chart overlay
   const segmentBoundaries: SegmentBoundary[] = useMemo(() =>
@@ -140,18 +145,25 @@ function App() {
       setCalcTimeMs(Math.round((t1 - t0) * 100) / 100);
       setEvalResult(result);
 
-      // Also calculate cam contour
+      // Calculate both cam types
       try {
         const camProfile = buildWasmProfile(segments);
         const contourResult = evaluate_cam_contour(camProfile, camBaseRadius, camRollerRadius, camOffset, 720);
         setCamContour(contourResult as CamContourData);
       } catch (camErr) {
-        console.error("Cam Contour Error:", camErr);
+        console.error("Rotary Cam Error:", camErr);
+      }
+      try {
+        const linProfile = buildWasmProfile(segments);
+        const linResult = evaluate_linear_cam_contour(linProfile, camLength, camRollerRadius, camGrooveDepth, 720);
+        setLinearContour(linResult as LinearCamContourData);
+      } catch (linErr) {
+        console.error("Linear Cam Error:", linErr);
       }
     } catch (err) {
       console.error("WASM Profile Evaluate Error:", err);
     }
-  }, [wasmReady, segments, camBaseRadius, camRollerRadius, camOffset]);
+  }, [wasmReady, segments, camBaseRadius, camRollerRadius, camOffset, camLength, camGrooveDepth]);
 
   // Recalculate when segments or cam params change
   useEffect(() => {
@@ -266,29 +278,67 @@ function App() {
             {/* Cam Parameters */}
             <div style={{ marginTop: '0.75rem', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '0.75rem' }}>
               <h3 style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '0.5rem' }}>
-                <Circle size={14} style={{ verticalAlign: 'middle', marginRight: '0.25rem' }} />
+                {camType === 'rotary' ? <Circle size={14} style={{ verticalAlign: 'middle', marginRight: '0.25rem' }} /> : <ArrowRight size={14} style={{ verticalAlign: 'middle', marginRight: '0.25rem' }} />}
                 Cam Geometry
               </h3>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.4rem' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
-                  <label style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>Base R (mm)</label>
-                  <input type="number" value={camBaseRadius} min={10} max={500} step={1}
-                    onChange={e => setCamBaseRadius(parseFloat(e.target.value) || 60)}
-                    className="cam-input" />
-                </div>
+
+              {/* Cam Type Toggle */}
+              <div style={{ display: 'flex', gap: '2px', marginBottom: '0.5rem', background: 'rgba(0,0,0,0.2)', borderRadius: '5px', padding: '2px' }}>
+                <button className={`tab-btn ${camType === 'rotary' ? 'active' : ''}`}
+                  onClick={() => setCamType('rotary')} style={{ flex: 1, justifyContent: 'center' }}>
+                  <Circle size={12} /> Rotary
+                </button>
+                <button className={`tab-btn ${camType === 'linear' ? 'active' : ''}`}
+                  onClick={() => setCamType('linear')} style={{ flex: 1, justifyContent: 'center' }}>
+                  <ArrowRight size={12} /> Linear
+                </button>
+              </div>
+
+              {/* Shared: Roller Radius */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem', marginBottom: '0.4rem' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
                   <label style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>Roller R (mm)</label>
                   <input type="number" value={camRollerRadius} min={0} max={100} step={0.5}
                     onChange={e => setCamRollerRadius(parseFloat(e.target.value) || 0)}
                     className="cam-input" />
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
-                  <label style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>Offset (mm)</label>
-                  <input type="number" value={camOffset} min={-50} max={50} step={0.5}
-                    onChange={e => setCamOffset(parseFloat(e.target.value) || 0)}
-                    className="cam-input" />
-                </div>
               </div>
+
+              {/* Rotary-specific params */}
+              {camType === 'rotary' && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
+                    <label style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>Base R (mm)</label>
+                    <input type="number" value={camBaseRadius} min={10} max={500} step={1}
+                      onChange={e => setCamBaseRadius(parseFloat(e.target.value) || 60)}
+                      className="cam-input" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
+                    <label style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>Offset (mm)</label>
+                    <input type="number" value={camOffset} min={-50} max={50} step={0.5}
+                      onChange={e => setCamOffset(parseFloat(e.target.value) || 0)}
+                      className="cam-input" />
+                  </div>
+                </div>
+              )}
+
+              {/* Linear-specific params */}
+              {camType === 'linear' && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
+                    <label style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>Cam Length (mm)</label>
+                    <input type="number" value={camLength} min={50} max={2000} step={10}
+                      onChange={e => setCamLength(parseFloat(e.target.value) || 300)}
+                      className="cam-input" />
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
+                    <label style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>Groove Depth (mm)</label>
+                    <input type="number" value={camGrooveDepth} min={0} max={100} step={1}
+                      onChange={e => setCamGrooveDepth(parseFloat(e.target.value) || 0)}
+                      className="cam-input" />
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Diagnostics */}
@@ -314,20 +364,27 @@ function App() {
                   <span className="param-label">Max |Accel|</span>
                   <span className="param-value">{Math.max(...evalResult.map(r => Math.abs(r.a))).toFixed(3)}</span>
                 </div>
-                {camContour && (
-                  <>
+                {(camContour || linearContour) && (() => {
+                  const cd = camType === 'rotary' ? camContour : linearContour;
+                  if (!cd) return null;
+                  return <>
+                    <div className="param-row">
+                      <span className="param-label">Cam Type</span>
+                      <span className="param-value">{camType === 'rotary' ? '⟲ Rotary' : '⟶ Linear'}</span>
+                    </div>
                     <div className="param-row">
                       <span className="param-label">Pressure ∠ max</span>
-                      <span className="param-value" style={{ color: camContour.max_pressure_angle > 30 ? 'var(--warning)' : 'var(--success)' }}>
-                        {camContour.max_pressure_angle.toFixed(1)}°
+                      <span className="param-value" style={{ color: cd.max_pressure_angle > 30 ? 'var(--warning)' : 'var(--success)' }}>
+                        {cd.max_pressure_angle.toFixed(1)}°
                       </span>
                     </div>
                     <div className="param-row">
                       <span className="param-label">Min Curvature ρ</span>
-                      <span className="param-value">{camContour.min_curvature_radius.toFixed(2)} mm</span>
+                      <span className="param-value">{cd.min_curvature_radius.toFixed(2)} mm</span>
                     </div>
-                  </>
-                )}
+                  </>;
+                })()}
+
                 <div className="param-row">
                   <span className="param-label">Calc Time</span>
                   <span className="param-value">{calcTimeMs} ms</span>
@@ -398,8 +455,13 @@ function App() {
             )}
 
             {activeTab === 'cam' && (
-              camContour ? (
-                <CamContourChart data={camContour} baseRadius={camBaseRadius} />
+              (camContour || linearContour) ? (
+                <CamContourChart
+                  camType={camType}
+                  rotaryData={camContour}
+                  linearData={linearContour}
+                  baseRadius={camBaseRadius}
+                />
               ) : (
                 <div className="chart-placeholder" style={{ height: '100%', margin: 0 }}>
                   <Circle size={64} style={{ opacity: 0.2, marginBottom: '1rem' }} />

@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -14,6 +13,7 @@ pub enum RotationDirection {
 pub enum CamType {
     Disc { thickness: f64 },
     Cylindrical { length: f64, groove_width: f64 },
+    Linear { length: f64, thickness: f64 },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

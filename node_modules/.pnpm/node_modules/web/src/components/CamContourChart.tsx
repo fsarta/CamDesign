@@ -1,5 +1,9 @@
 import React, { useMemo, useState } from 'react';
 
+// ─── Types ─────────────────────────────────────────────────
+
+export type CamDisplayType = 'rotary' | 'linear';
+
 export interface CamContourData {
     points: Array<{
         angle_deg: number;
@@ -14,82 +18,61 @@ export interface CamContourData {
     base_radius: number;
 }
 
+export interface LinearCamContourData {
+    points: Array<{
+        x: number;
+        angle_deg: number;
+        s: number;
+        y_upper: number;
+        y_lower: number;
+        pressure_angle: number;
+        curvature_radius: number;
+    }>;
+    max_pressure_angle: number;
+    min_curvature_radius: number;
+    cam_length: number;
+    max_displacement: number;
+}
+
 interface CamContourChartProps {
-    data: CamContourData;
+    camType: CamDisplayType;
+    rotaryData?: CamContourData | null;
+    linearData?: LinearCamContourData | null;
     baseRadius: number;
 }
 
-export const CamContourChart: React.FC<CamContourChartProps> = ({ data, baseRadius }) => {
+// ─── Helpers ─────────────────────────────────────────────────
+
+const paColor = (pa: number): string => {
+    const abs = Math.abs(pa);
+    if (abs < 30) return '#10b981';
+    if (abs < 40) return '#f59e0b';
+    return '#ef4444';
+};
+
+// ─── Component ───────────────────────────────────────────────
+
+export const CamContourChart: React.FC<CamContourChartProps> = ({
+    camType,
+    rotaryData,
+    linearData,
+    baseRadius,
+}) => {
     const [showPressureAngle, setShowPressureAngle] = useState(false);
-    const [hoverAngle, setHoverAngle] = useState<number | null>(null);
+    const [hoverIdx, setHoverIdx] = useState<number | null>(null);
 
-    // Compute SVG path and viewport
-    const { path, basePath, viewBox, center, scale } = useMemo(() => {
-        if (data.points.length === 0) {
-            return { path: '', basePath: '', viewBox: '0 0 200 200', center: { x: 100, y: 100 }, scale: 1 };
-        }
-
-        const xs = data.points.map(p => p.x);
-        const ys = data.points.map(p => p.y);
-        const minX = Math.min(...xs);
-        const maxX = Math.max(...xs);
-        const minY = Math.min(...ys);
-        const maxY = Math.max(...ys);
-
-        const cx = (minX + maxX) / 2;
-        const cy = (minY + maxY) / 2;
-        const rangeX = maxX - minX;
-        const rangeY = maxY - minY;
-        const range = Math.max(rangeX, rangeY) * 1.2;
-
-        const svgSize = 400;
-        const s = svgSize / range;
-        const vbMinX = cx - range / 2;
-        const vbMinY = cy - range / 2;
-
-        // Cam contour path
-        const pts = data.points.map(p => ({
-            sx: (p.x - vbMinX) * s,
-            sy: (p.y - vbMinY) * s,
-        }));
-
-        let d = `M ${pts[0].sx} ${pts[0].sy}`;
-        for (let i = 1; i < pts.length; i++) {
-            d += ` L ${pts[i].sx} ${pts[i].sy}`;
-        }
-        d += ' Z';
-
-        // Base circle path
-        const bcx = (0 - vbMinX) * s;
-        const bcy = (0 - vbMinY) * s;
-        const br = baseRadius * s;
-        const bPath = `M ${bcx + br} ${bcy} A ${br} ${br} 0 1 1 ${bcx - br} ${bcy} A ${br} ${br} 0 1 1 ${bcx + br} ${bcy}`;
-
-        return {
-            path: d,
-            basePath: bPath,
-            viewBox: `0 0 ${svgSize} ${svgSize}`,
-            center: { x: bcx, y: bcy },
-            scale: s,
-        };
-    }, [data, baseRadius]);
-
-    // Pressure angle color (green < 30°, yellow 30-40°, red > 40°)
-    const paColor = (pa: number) => {
-        const abs = Math.abs(pa);
-        if (abs < 30) return '#10b981';
-        if (abs < 40) return '#f59e0b';
-        return '#ef4444';
-    };
-
-    const hoveredPoint = useMemo(() => {
-        if (hoverAngle === null) return null;
-        return data.points.find(p => Math.round(p.angle_deg) === hoverAngle) || null;
-    }, [hoverAngle, data.points]);
+    const data = camType === 'rotary' ? rotaryData : linearData;
+    if (!data || !data.points || data.points.length === 0) {
+        return (
+            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b' }}>
+                <span>No cam contour data</span>
+            </div>
+        );
+    }
 
     return (
         <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
-            {/* Cam Info Header */}
+            {/* Info Header */}
             <div style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -101,13 +84,20 @@ export const CamContourChart: React.FC<CamContourChartProps> = ({ data, baseRadi
                 fontSize: '0.8rem',
                 flexShrink: 0,
             }}>
-                <span style={{ color: '#94a3b8', fontWeight: 600 }}>Cam Contour</span>
+                <span style={{ color: '#94a3b8', fontWeight: 600 }}>
+                    {camType === 'rotary' ? '⟲ Rotary Cam' : '⟶ Linear Cam'}
+                </span>
                 <span style={{ color: paColor(data.max_pressure_angle) }}>
                     μ<sub>max</sub>: <strong>{data.max_pressure_angle.toFixed(1)}°</strong>
                 </span>
                 <span style={{ color: data.min_curvature_radius < 5 ? '#ef4444' : '#94a3b8' }}>
                     ρ<sub>min</sub>: <strong>{data.min_curvature_radius.toFixed(2)}</strong> mm
                 </span>
+                {camType === 'linear' && linearData && (
+                    <span style={{ color: '#64748b' }}>
+                        L: <strong>{linearData.cam_length.toFixed(0)}</strong> mm
+                    </span>
+                )}
                 <label style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.3rem', cursor: 'pointer' }}>
                     <input
                         type="checkbox"
@@ -119,113 +109,234 @@ export const CamContourChart: React.FC<CamContourChartProps> = ({ data, baseRadi
                 </label>
             </div>
 
-            {/* SVG Canvas */}
+            {/* Canvas */}
             <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
-                <svg
-                    viewBox={viewBox}
-                    style={{ width: '100%', height: '100%' }}
-                    onMouseMove={e => {
-                        const svg = e.currentTarget;
-                        const rect = svg.getBoundingClientRect();
-                        const x = ((e.clientX - rect.left) / rect.width) * 400;
-                        const y = ((e.clientY - rect.top) / rect.height) * 400;
-                        // Find nearest point
-                        let minDist = Infinity;
-                        let nearest = -1;
-                        data.points.forEach((p, i) => {
-                            const px = (p.x - 0) * scale + 200;
-                            const py = (p.y - 0) * scale + 200;
-                            const dist = Math.sqrt((x - px) ** 2 + (y - py) ** 2);
-                            if (dist < minDist) {
-                                minDist = dist;
-                                nearest = i;
-                            }
-                        });
-                        if (nearest >= 0 && minDist < 30) {
-                            setHoverAngle(Math.round(data.points[nearest].angle_deg));
-                        } else {
-                            setHoverAngle(null);
-                        }
-                    }}
-                    onMouseLeave={() => setHoverAngle(null)}
-                >
-                    {/* Background */}
-                    <rect width="100%" height="100%" fill="rgba(0,0,0,0.1)" rx="8" />
-
-                    {/* Center crosshair */}
-                    <line x1={center.x - 8} y1={center.y} x2={center.x + 8} y2={center.y}
-                        stroke="rgba(255,255,255,0.2)" strokeWidth="0.5" />
-                    <line x1={center.x} y1={center.y - 8} x2={center.x} y2={center.y + 8}
-                        stroke="rgba(255,255,255,0.2)" strokeWidth="0.5" />
-
-                    {/* Base Circle */}
-                    <path d={basePath} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="1" strokeDasharray="4 4" />
-
-                    {/* Cam Contour */}
-                    <path
-                        d={path}
-                        fill="rgba(59, 130, 246, 0.08)"
-                        stroke="#3b82f6"
-                        strokeWidth="2"
-                        strokeLinejoin="round"
-                    />
-
-                    {/* Pressure angle visualization */}
-                    {showPressureAngle && data.points.filter((_, i) => i % 10 === 0).map((p, i) => {
-                        const pts = data.points;
-                        const idx = pts.indexOf(p);
-                        if (idx < 0) return null;
-                        const sx = (p.x - (parseFloat(viewBox.split(' ')[0]) || 0) / scale) * scale;
-                        const sy = (p.y - (parseFloat(viewBox.split(' ')[1]) || 0) / scale) * scale;
-                        return (
-                            <circle
-                                key={i}
-                                cx={sx}
-                                cy={sy}
-                                r={2}
-                                fill={paColor(p.pressure_angle)}
-                                opacity={0.6}
-                            />
-                        );
-                    })}
-
-                    {/* Hover point */}
-                    {hoveredPoint && (() => {
-                        const vb = viewBox.split(' ').map(Number);
-                        const sx = (hoveredPoint.x - vb[0] / scale) * scale;
-                        const sy = (hoveredPoint.y - vb[1] / scale) * scale;
-                        return (
-                            <g>
-                                <circle cx={sx} cy={sy} r={5} fill="none" stroke="#fff" strokeWidth="1.5" />
-                                <circle cx={sx} cy={sy} r={2} fill="#3b82f6" />
-                            </g>
-                        );
-                    })()}
-                </svg>
+                {camType === 'rotary' && rotaryData ? (
+                    <RotaryView data={rotaryData} baseRadius={baseRadius} showPA={showPressureAngle} hoverIdx={hoverIdx} setHoverIdx={setHoverIdx} />
+                ) : linearData ? (
+                    <LinearView data={linearData} showPA={showPressureAngle} hoverIdx={hoverIdx} setHoverIdx={setHoverIdx} />
+                ) : null}
 
                 {/* Hover tooltip */}
-                {hoveredPoint && (
-                    <div style={{
-                        position: 'absolute',
-                        top: 8,
-                        right: 8,
-                        background: 'rgba(15,23,42,0.9)',
-                        border: '1px solid rgba(255,255,255,0.15)',
-                        borderRadius: '6px',
-                        padding: '0.5rem 0.75rem',
-                        fontSize: '0.75rem',
-                        color: '#e2e8f0',
-                        fontVariantNumeric: 'tabular-nums',
-                    }}>
-                        <div style={{ color: '#94a3b8', marginBottom: '0.25rem', fontWeight: 600 }}>
-                            φ = {hoveredPoint.angle_deg.toFixed(1)}°
+                {hoverIdx !== null && (() => {
+                    const pts = camType === 'rotary' ? rotaryData?.points : linearData?.points;
+                    if (!pts || !pts[hoverIdx]) return null;
+                    const p = pts[hoverIdx];
+                    return (
+                        <div style={{
+                            position: 'absolute', top: 8, right: 8,
+                            background: 'rgba(15,23,42,0.92)',
+                            border: '1px solid rgba(255,255,255,0.15)',
+                            borderRadius: '6px', padding: '0.5rem 0.75rem',
+                            fontSize: '0.75rem', color: '#e2e8f0',
+                            fontVariantNumeric: 'tabular-nums',
+                            pointerEvents: 'none',
+                        }}>
+                            <div style={{ color: '#94a3b8', marginBottom: '0.2rem', fontWeight: 600 }}>
+                                φ = {p.angle_deg.toFixed(1)}°
+                                {camType === 'linear' && ' x' in p && ` | x = ${(p as any).x?.toFixed(1)} mm`}
+                            </div>
+                            <div>s = {p.s.toFixed(3)} mm</div>
+                            <div>μ = <span style={{ color: paColor(p.pressure_angle) }}>{p.pressure_angle.toFixed(2)}°</span></div>
+                            <div>ρ = {p.curvature_radius.toFixed(2)} mm</div>
                         </div>
-                        <div>s = {hoveredPoint.s.toFixed(3)} mm</div>
-                        <div>μ = <span style={{ color: paColor(hoveredPoint.pressure_angle) }}>{hoveredPoint.pressure_angle.toFixed(2)}°</span></div>
-                        <div>ρ = {hoveredPoint.curvature_radius.toFixed(2)} mm</div>
-                    </div>
-                )}
+                    );
+                })()}
             </div>
         </div>
+    );
+};
+
+// ─── Rotary (Disc) Cam SVG ──────────────────────────────────
+
+interface RotaryViewProps {
+    data: CamContourData;
+    baseRadius: number;
+    showPA: boolean;
+    hoverIdx: number | null;
+    setHoverIdx: (v: number | null) => void;
+}
+
+const RotaryView: React.FC<RotaryViewProps> = ({ data, baseRadius, showPA, hoverIdx, setHoverIdx }) => {
+    const svg = useMemo(() => {
+        const xs = data.points.map(p => p.x);
+        const ys = data.points.map(p => p.y);
+        const minX = Math.min(...xs), maxX = Math.max(...xs);
+        const minY = Math.min(...ys), maxY = Math.max(...ys);
+        const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+        const range = Math.max(maxX - minX, maxY - minY) * 1.2;
+        const size = 400;
+        const s = size / range;
+        const ox = cx - range / 2, oy = cy - range / 2;
+
+        const pts = data.points.map(p => ({ sx: (p.x - ox) * s, sy: (p.y - oy) * s }));
+        let path = `M ${pts[0].sx} ${pts[0].sy}`;
+        for (let i = 1; i < pts.length; i++) path += ` L ${pts[i].sx} ${pts[i].sy}`;
+        path += ' Z';
+
+        const bcx = (0 - ox) * s, bcy = (0 - oy) * s;
+        const br = baseRadius * s;
+        const bPath = `M ${bcx + br} ${bcy} A ${br} ${br} 0 1 1 ${bcx - br} ${bcy} A ${br} ${br} 0 1 1 ${bcx + br} ${bcy}`;
+
+        return { path, basePath: bPath, center: { x: bcx, y: bcy }, pts, s, ox, oy };
+    }, [data, baseRadius]);
+
+    return (
+        <svg viewBox="0 0 400 400" style={{ width: '100%', height: '100%' }}
+            onMouseMove={e => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const mx = ((e.clientX - rect.left) / rect.width) * 400;
+                const my = ((e.clientY - rect.top) / rect.height) * 400;
+                let minD = Infinity, best = -1;
+                svg.pts.forEach((p, i) => {
+                    const d = (mx - p.sx) ** 2 + (my - p.sy) ** 2;
+                    if (d < minD) { minD = d; best = i; }
+                });
+                setHoverIdx(best >= 0 && Math.sqrt(minD) < 30 ? best : null);
+            }}
+            onMouseLeave={() => setHoverIdx(null)}
+        >
+            <rect width="100%" height="100%" fill="rgba(0,0,0,0.1)" rx="8" />
+            {/* Center */}
+            <line x1={svg.center.x - 8} y1={svg.center.y} x2={svg.center.x + 8} y2={svg.center.y} stroke="rgba(255,255,255,0.2)" strokeWidth="0.5" />
+            <line x1={svg.center.x} y1={svg.center.y - 8} x2={svg.center.x} y2={svg.center.y + 8} stroke="rgba(255,255,255,0.2)" strokeWidth="0.5" />
+            {/* Base Circle */}
+            <path d={svg.basePath} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="1" strokeDasharray="4 4" />
+            {/* Contour */}
+            <path d={svg.path} fill="rgba(59,130,246,0.08)" stroke="#3b82f6" strokeWidth="2" strokeLinejoin="round" />
+            {/* PA dots */}
+            {showPA && svg.pts.filter((_, i) => i % 10 === 0).map((p, i) => (
+                <circle key={i} cx={p.sx} cy={p.sy} r={2} fill={paColor(data.points[i * 10]?.pressure_angle ?? 0)} opacity={0.6} />
+            ))}
+            {/* Hover */}
+            {hoverIdx !== null && svg.pts[hoverIdx] && (
+                <g>
+                    <circle cx={svg.pts[hoverIdx].sx} cy={svg.pts[hoverIdx].sy} r={5} fill="none" stroke="#fff" strokeWidth="1.5" />
+                    <circle cx={svg.pts[hoverIdx].sx} cy={svg.pts[hoverIdx].sy} r={2} fill="#3b82f6" />
+                </g>
+            )}
+        </svg>
+    );
+};
+
+// ─── Linear (Plate) Cam SVG ──────────────────────────────────
+
+interface LinearViewProps {
+    data: LinearCamContourData;
+    showPA: boolean;
+    hoverIdx: number | null;
+    setHoverIdx: (v: number | null) => void;
+}
+
+const LinearView: React.FC<LinearViewProps> = ({ data, showPA, hoverIdx, setHoverIdx }) => {
+    const svg = useMemo(() => {
+        const pts = data.points;
+        const maxY = Math.max(...pts.map(p => p.y_upper), ...pts.map(p => Math.abs(p.y_lower)));
+        const pad = 30;
+        const w = 800, h = 400;
+        const plotW = w - 2 * pad;
+        const plotH = h - 2 * pad;
+        const yRange = maxY * 1.3;
+        const xScale = plotW / data.cam_length;
+        const yScale = plotH / yRange;
+
+        // Upper contour path
+        let upperPath = `M ${pad + pts[0].x * xScale} ${h - pad - pts[0].y_upper * yScale}`;
+        for (let i = 1; i < pts.length; i++) {
+            upperPath += ` L ${pad + pts[i].x * xScale} ${h - pad - pts[i].y_upper * yScale}`;
+        }
+
+        // Lower contour path (groove)
+        let lowerPath = '';
+        const hasGroove = pts.some(p => p.y_lower !== 0);
+        if (hasGroove) {
+            lowerPath = `M ${pad + pts[0].x * xScale} ${h - pad - pts[0].y_lower * yScale}`;
+            for (let i = 1; i < pts.length; i++) {
+                lowerPath += ` L ${pad + pts[i].x * xScale} ${h - pad - pts[i].y_lower * yScale}`;
+            }
+        }
+
+        // Baseline (y=0)
+        const baseY = h - pad;
+
+        // Screen coordinates for each point
+        const screenPts = pts.map(p => ({
+            sx: pad + p.x * xScale,
+            sy: h - pad - p.y_upper * yScale,
+        }));
+
+        return { upperPath, lowerPath, hasGroove, baseY, screenPts, w, h, pad, xScale, yScale };
+    }, [data]);
+
+    return (
+        <svg viewBox={`0 0 ${svg.w} ${svg.h}`} style={{ width: '100%', height: '100%' }}
+            onMouseMove={e => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const mx = ((e.clientX - rect.left) / rect.width) * svg.w;
+                let minD = Infinity, best = -1;
+                svg.screenPts.forEach((p, i) => {
+                    const d = Math.abs(mx - p.sx);
+                    if (d < minD) { minD = d; best = i; }
+                });
+                setHoverIdx(best >= 0 && minD < 20 ? best : null);
+            }}
+            onMouseLeave={() => setHoverIdx(null)}
+        >
+            <rect width="100%" height="100%" fill="rgba(0,0,0,0.1)" rx="8" />
+
+            {/* Grid lines */}
+            {Array.from({ length: 7 }, (_, i) => {
+                const x = svg.pad + (i / 6) * (svg.w - 2 * svg.pad);
+                return <line key={`gx-${i}`} x1={x} y1={svg.pad} x2={x} y2={svg.h - svg.pad} stroke="rgba(255,255,255,0.06)" strokeWidth="0.5" />;
+            })}
+            {Array.from({ length: 5 }, (_, i) => {
+                const y = svg.pad + (i / 4) * (svg.h - 2 * svg.pad);
+                return <line key={`gy-${i}`} x1={svg.pad} y1={y} x2={svg.w - svg.pad} y2={y} stroke="rgba(255,255,255,0.06)" strokeWidth="0.5" />;
+            })}
+
+            {/* Baseline */}
+            <line x1={svg.pad} y1={svg.baseY} x2={svg.w - svg.pad} y2={svg.baseY} stroke="rgba(255,255,255,0.15)" strokeWidth="1" strokeDasharray="4 4" />
+
+            {/* Cam plate outline */}
+            <rect x={svg.pad} y={svg.baseY} width={svg.w - 2 * svg.pad} height={4} fill="rgba(255,255,255,0.08)" rx="1" />
+
+            {/* Upper contour */}
+            <path d={svg.upperPath} fill="none" stroke="#3b82f6" strokeWidth="2.5" strokeLinejoin="round" />
+
+            {/* Lower contour (groove) */}
+            {svg.hasGroove && (
+                <path d={svg.lowerPath} fill="none" stroke="#8b5cf6" strokeWidth="1.5" strokeDasharray="6 3" strokeLinejoin="round" />
+            )}
+
+            {/* Fill between upper contour and baseline */}
+            <path d={`${svg.upperPath} L ${svg.screenPts[svg.screenPts.length - 1].sx} ${svg.baseY} L ${svg.screenPts[0].sx} ${svg.baseY} Z`}
+                fill="rgba(59,130,246,0.06)" />
+
+            {/* PA dots */}
+            {showPA && svg.screenPts.filter((_, i) => i % 10 === 0).map((p, i) => (
+                <circle key={i} cx={p.sx} cy={p.sy} r={2.5}
+                    fill={paColor(data.points[i * 10]?.pressure_angle ?? 0)} opacity={0.7} />
+            ))}
+
+            {/* Hover line + dot */}
+            {hoverIdx !== null && svg.screenPts[hoverIdx] && (
+                <g>
+                    <line x1={svg.screenPts[hoverIdx].sx} y1={svg.pad} x2={svg.screenPts[hoverIdx].sx} y2={svg.h - svg.pad}
+                        stroke="rgba(255,255,255,0.3)" strokeWidth="1" strokeDasharray="3 3" />
+                    <circle cx={svg.screenPts[hoverIdx].sx} cy={svg.screenPts[hoverIdx].sy} r={5} fill="none" stroke="#fff" strokeWidth="1.5" />
+                    <circle cx={svg.screenPts[hoverIdx].sx} cy={svg.screenPts[hoverIdx].sy} r={2} fill="#3b82f6" />
+                </g>
+            )}
+
+            {/* X-axis labels */}
+            <text x={svg.pad} y={svg.h - 8} fill="#64748b" fontSize="10" textAnchor="start">0 mm</text>
+            <text x={svg.w - svg.pad} y={svg.h - 8} fill="#64748b" fontSize="10" textAnchor="end">{data.cam_length} mm</text>
+            <text x={svg.w / 2} y={svg.h - 8} fill="#64748b" fontSize="10" textAnchor="middle">{(data.cam_length / 2).toFixed(0)} mm</text>
+
+            {/* Y-axis label */}
+            <text x={14} y={svg.h / 2} fill="#64748b" fontSize="9" textAnchor="middle" transform={`rotate(-90, 14, ${svg.h / 2})`}>
+                displacement (mm)
+            </text>
+        </svg>
     );
 };
