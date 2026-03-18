@@ -1,4 +1,6 @@
 import React, { useMemo, useState } from 'react';
+import type { UnitSystem } from '../units';
+import { lengthLabel, lengthFromInternal, angleLabel, convertAngle, DEFAULT_UNITS } from '../units';
 
 // ─── Types ─────────────────────────────────────────────────
 
@@ -39,6 +41,7 @@ interface CamContourChartProps {
     rotaryData?: CamContourData | null;
     linearData?: LinearCamContourData | null;
     baseRadius: number;
+    unitSystem?: UnitSystem;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────
@@ -57,9 +60,14 @@ export const CamContourChart: React.FC<CamContourChartProps> = ({
     rotaryData,
     linearData,
     baseRadius,
+    unitSystem = DEFAULT_UNITS,
 }) => {
     const [showPressureAngle, setShowPressureAngle] = useState(false);
     const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
+    const lu = lengthLabel(unitSystem.length);
+    const au = angleLabel(unitSystem.angle);
+    const lf = (v: number) => lengthFromInternal(v, unitSystem.length); // mm → display
 
     const data = camType === 'rotary' ? rotaryData : linearData;
     if (!data || !data.points || data.points.length === 0) {
@@ -88,14 +96,14 @@ export const CamContourChart: React.FC<CamContourChartProps> = ({
                     {camType === 'rotary' ? '⟲ Rotary Cam' : '⟶ Linear Cam'}
                 </span>
                 <span style={{ color: paColor(data.max_pressure_angle) }}>
-                    μ<sub>max</sub>: <strong>{data.max_pressure_angle.toFixed(1)}°</strong>
+                    μ<sub>max</sub>: <strong>{data.max_pressure_angle.toFixed(1)}{au}</strong>
                 </span>
                 <span style={{ color: data.min_curvature_radius < 5 ? '#ef4444' : '#94a3b8' }}>
-                    ρ<sub>min</sub>: <strong>{data.min_curvature_radius.toFixed(2)}</strong> mm
+                    ρ<sub>min</sub>: <strong>{lf(data.min_curvature_radius).toFixed(2)}</strong> {lu}
                 </span>
                 {camType === 'linear' && linearData && (
                     <span style={{ color: '#64748b' }}>
-                        L: <strong>{linearData.cam_length.toFixed(0)}</strong> mm
+                        L: <strong>{lf(linearData.cam_length).toFixed(0)}</strong> {lu}
                     </span>
                 )}
                 <label style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.3rem', cursor: 'pointer' }}>
@@ -133,12 +141,12 @@ export const CamContourChart: React.FC<CamContourChartProps> = ({
                             pointerEvents: 'none',
                         }}>
                             <div style={{ color: '#94a3b8', marginBottom: '0.2rem', fontWeight: 600 }}>
-                                φ = {p.angle_deg.toFixed(1)}°
-                                {camType === 'linear' && ' x' in p && ` | x = ${(p as any).x?.toFixed(1)} mm`}
+                                φ = {(unitSystem.angle === 'rad' ? convertAngle(p.angle_deg, 'deg', 'rad') : p.angle_deg).toFixed(unitSystem.angle === 'rad' ? 3 : 1)}{au}
+                                {camType === 'linear' && 'x' in p && ` | x = ${lf((p as any).x).toFixed(1)} ${lu}`}
                             </div>
-                            <div>s = {p.s.toFixed(3)} mm</div>
-                            <div>μ = <span style={{ color: paColor(p.pressure_angle) }}>{p.pressure_angle.toFixed(2)}°</span></div>
-                            <div>ρ = {p.curvature_radius.toFixed(2)} mm</div>
+                            <div>s = {lf(p.s).toFixed(3)} {lu}</div>
+                            <div>μ = <span style={{ color: paColor(p.pressure_angle) }}>{p.pressure_angle.toFixed(2)}{au}</span></div>
+                            <div>ρ = {lf(p.curvature_radius).toFixed(2)} {lu}</div>
                         </div>
                     );
                 })()}
@@ -169,12 +177,17 @@ const RotaryView: React.FC<RotaryViewProps> = ({ data, baseRadius, showPA, hover
         const s = size / range;
         const ox = cx - range / 2, oy = cy - range / 2;
 
-        const pts = data.points.map(p => ({ sx: (p.x - ox) * s, sy: (p.y - oy) * s }));
+        // SVG Y-axis is inverted (down = positive), cam Y-axis is math-standard (up = positive)
+        const pts = data.points.map(p => ({
+            sx: (p.x - ox) * s,
+            sy: size - (p.y - oy) * s, // Flip Y
+        }));
         let path = `M ${pts[0].sx} ${pts[0].sy}`;
         for (let i = 1; i < pts.length; i++) path += ` L ${pts[i].sx} ${pts[i].sy}`;
         path += ' Z';
 
-        const bcx = (0 - ox) * s, bcy = (0 - oy) * s;
+        const bcx = (0 - ox) * s;
+        const bcy = size - (0 - oy) * s; // Flip Y for center
         const br = baseRadius * s;
         const bPath = `M ${bcx + br} ${bcy} A ${br} ${br} 0 1 1 ${bcx - br} ${bcy} A ${br} ${br} 0 1 1 ${bcx + br} ${bcy}`;
 
@@ -192,7 +205,7 @@ const RotaryView: React.FC<RotaryViewProps> = ({ data, baseRadius, showPA, hover
                     const d = (mx - p.sx) ** 2 + (my - p.sy) ** 2;
                     if (d < minD) { minD = d; best = i; }
                 });
-                setHoverIdx(best >= 0 && Math.sqrt(minD) < 30 ? best : null);
+                setHoverIdx(best >= 0 && Math.sqrt(minD) < 50 ? best : null);
             }}
             onMouseLeave={() => setHoverIdx(null)}
         >

@@ -1,5 +1,7 @@
 import React from 'react';
 import { Plus, Trash2, ChevronDown } from 'lucide-react';
+import type { UnitSystem } from '../units';
+import { lengthLabel, angleLabel, DEFAULT_UNITS } from '../units';
 
 export interface SegmentDef {
     id: string;
@@ -43,17 +45,24 @@ const SEGMENT_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '
 interface SegmentEditorProps {
     segments: SegmentDef[];
     onSegmentsChange: (segments: SegmentDef[]) => void;
+    unitSystem?: UnitSystem;
 }
 
-export const SegmentEditor: React.FC<SegmentEditorProps> = ({ segments, onSegmentsChange }) => {
+export const SegmentEditor: React.FC<SegmentEditorProps> = ({ segments, onSegmentsChange, unitSystem = DEFAULT_UNITS }) => {
     const [expandedId, setExpandedId] = React.useState<string | null>(segments[0]?.id ?? null);
+
+    const lu = lengthLabel(unitSystem.length);
+    const au = angleLabel(unitSystem.angle);
+
+    const sortByPosition = (segs: SegmentDef[]) =>
+        [...segs].sort((a, b) => a.phi_start - b.phi_start);
 
     const handleFieldChange = (segId: string, field: keyof SegmentDef, value: any) => {
         const updated = segments.map(seg => {
             if (seg.id !== segId) return seg;
             return { ...seg, [field]: value };
         });
-        onSegmentsChange(updated);
+        onSegmentsChange(sortByPosition(updated));
     };
 
     const addSegment = () => {
@@ -85,14 +94,14 @@ export const SegmentEditor: React.FC<SegmentEditorProps> = ({ segments, onSegmen
             bezier_cx2: 0.25,
             bezier_cy2: 1.0,
         };
-        const updated = [...segments, newSeg];
+        const updated = sortByPosition([...segments, newSeg]);
         onSegmentsChange(updated);
         setExpandedId(newSeg.id);
     };
 
     const removeSegment = (segId: string) => {
         if (segments.length <= 1) return;
-        onSegmentsChange(segments.filter(s => s.id !== segId));
+        onSegmentsChange(sortByPosition(segments.filter(s => s.id !== segId)));
     };
 
     return (
@@ -190,13 +199,13 @@ export const SegmentEditor: React.FC<SegmentEditorProps> = ({ segments, onSegmen
 
                                 {/* Numeric Params */}
                                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-                                    <NumericField label="φ Start (°)" value={seg.phi_start}
-                                        onChange={v => handleFieldChange(seg.id, 'phi_start', v)} min={0} max={360} step={1} />
-                                    <NumericField label="φ End (°)" value={seg.phi_end}
-                                        onChange={v => handleFieldChange(seg.id, 'phi_end', v)} min={0} max={360} step={1} />
-                                    <NumericField label="Stroke (mm)" value={seg.stroke}
-                                        onChange={v => handleFieldChange(seg.id, 'stroke', v)} min={0} max={500} step={0.5} />
-                                    <NumericField label="S Start (mm)" value={seg.s_start}
+                                    <NumericField label={`φ Start (${au})`} value={seg.phi_start}
+                                        onChange={v => handleFieldChange(seg.id, 'phi_start', v)} min={0} max={unitSystem.angle === 'rad' ? 6.2832 : 360} step={unitSystem.angle === 'rad' ? 0.01 : 1} />
+                                    <NumericField label={`φ End (${au})`} value={seg.phi_end}
+                                        onChange={v => handleFieldChange(seg.id, 'phi_end', v)} min={0} max={unitSystem.angle === 'rad' ? 6.2832 : 360} step={unitSystem.angle === 'rad' ? 0.01 : 1} />
+                                    <NumericField label={`Stroke (${lu})`} value={seg.stroke}
+                                        onChange={v => handleFieldChange(seg.id, 'stroke', v)} min={-500} max={500} step={0.5} />
+                                    <NumericField label={`S Start (${lu})`} value={seg.s_start}
                                         onChange={v => handleFieldChange(seg.id, 's_start', v)} min={-500} max={500} step={0.5} />
                                 </div>
 

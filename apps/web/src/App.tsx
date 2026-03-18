@@ -1,6 +1,6 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import init, { evaluate_profile, evaluate_cam_contour, evaluate_linear_cam_contour } from 'motus_wasm';
-import { Activity, Settings, Play, GitMerge, Layers, LayoutGrid, AlignJustify, Circle, Download, BarChart3, ArrowRight } from 'lucide-react';
+import { Activity, Settings, Play, GitMerge, Layers, LayoutGrid, AlignJustify, Circle, Download, BarChart3, ArrowRight, Ruler } from 'lucide-react';
 import { KinematicChart } from './components/KinematicChart';
 import type { MotionPoint, ChartLayout, SegmentBoundary } from './components/KinematicChart';
 import { CamContourChart } from './components/CamContourChart';
@@ -9,6 +9,12 @@ import { SegmentEditor } from './components/SegmentEditor';
 import type { SegmentDef } from './components/SegmentEditor';
 import { fetchProjects } from './api';
 import type { Project } from './api';
+import type { UnitSystem, LengthUnit, AngleUnit } from './units';
+import {
+  DEFAULT_UNITS, LENGTH_OPTIONS, ANGLE_OPTIONS,
+  convertLength, convertAngle, lengthLabel, lengthFromInternal,
+  lengthToInternal,
+} from './units';
 import './index.css';
 
 type ViewTab = 'kinematic' | 'cam';
@@ -65,8 +71,8 @@ const DEFAULT_SEGMENTS: SegmentDef[] = [
   },
 ];
 
-// Build WASM profile from UI segments
-function buildWasmProfile(segments: SegmentDef[]) {
+// Build WASM profile from UI segments — converts display units → internal (mm, deg)
+function buildWasmProfile(segments: SegmentDef[], units: UnitSystem) {
   const wasmSegments = segments.map(seg => {
     let law: any = seg.law;
     if (seg.law === 'Bezier') {
@@ -79,8 +85,18 @@ function buildWasmProfile(segments: SegmentDef[]) {
         }
       };
     }
+    // Convert display→internal
+    const phi_start = units.angle === 'rad' ? convertAngle(seg.phi_start, 'rad', 'deg') : seg.phi_start;
+    const phi_end = units.angle === 'rad' ? convertAngle(seg.phi_end, 'rad', 'deg') : seg.phi_end;
+    const stroke = lengthToInternal(seg.stroke, units.length);
+    const s_start = lengthToInternal(seg.s_start, units.length);
+
     return {
       ...seg,
+      phi_start,
+      phi_end,
+      stroke,
+      s_start,
       law,
       name: seg.name || null,
       color: null,
@@ -95,7 +111,7 @@ function buildWasmProfile(segments: SegmentDef[]) {
     id: "00000000-0000-0000-0000-000000000001",
     name: "Interactive Profile",
     segments: wasmSegments,
-    total_stroke: Math.max(...segments.map(s => s.s_start + Math.abs(s.stroke)), 0),
+    total_stroke: Math.max(...wasmSegments.map(s => s.s_start + Math.abs(s.stroke)), 0),
     motion_type: "Rise",
     cycle_angle: 2 * Math.PI,
     resolution: 720,
@@ -122,6 +138,40 @@ function App() {
   const [camGrooveDepth, setCamGrooveDepth] = useState(0);
   const [linearContour, setLinearContour] = useState<LinearCamContourData | null>(null);
 
+  // Unit system
+  const [unitSystem, setUnitSystem] = useState<UnitSystem>(DEFAULT_UNITS);
+  const prevUnitsRef = useRef<UnitSystem>(DEFAULT_UNITS);
+
+  // Auto-convert values when units change
+  const handleUnitChange = useCallback((newUnits: UnitSystem) => {
+    const prev = prevUnitsRef.current;
+    // Convert length-based values
+    if (newUnits.length !== prev.length) {
+      const cl = (v: number) => convertLength(v, prev.length, newUnits.length);
+      setSegments(segs => segs.map(s => ({
+        ...s,
+        stroke: Number(cl(s.stroke).toFixed(4)),
+        s_start: Number(cl(s.s_start).toFixed(4)),
+      })));
+      setCamBaseRadius(v => Number(cl(v).toFixed(4)));
+      setCamRollerRadius(v => Number(cl(v).toFixed(4)));
+      setCamOffset(v => Number(cl(v).toFixed(4)));
+      setCamLength(v => Number(cl(v).toFixed(4)));
+      setCamGrooveDepth(v => Number(cl(v).toFixed(4)));
+    }
+    // Convert angle-based values
+    if (newUnits.angle !== prev.angle) {
+      const ca = (v: number) => convertAngle(v, prev.angle, newUnits.angle);
+      setSegments(segs => segs.map(s => ({
+        ...s,
+        phi_start: Number(ca(s.phi_start).toFixed(4)),
+        phi_end: Number(ca(s.phi_end).toFixed(4)),
+      })));
+    }
+    prevUnitsRef.current = newUnits;
+    setUnitSystem(newUnits);
+  }, []);
+
   // Segment boundaries for chart overlay
   const segmentBoundaries: SegmentBoundary[] = useMemo(() =>
     segments.map(seg => ({
@@ -137,7 +187,7 @@ function App() {
   const calculateProfile = useCallback(() => {
     if (!wasmReady) return;
     try {
-      const profile = buildWasmProfile(segments);
+      const profile = buildWasmProfile(segments, unitSystem);
 
       const t0 = performance.now();
       const result = evaluate_profile(profile, 720);
@@ -145,17 +195,24 @@ function App() {
       setCalcTimeMs(Math.round((t1 - t0) * 100) / 100);
       setEvalResult(result);
 
+      // Convert cam params to internal (mm)
+      const iBaseR = lengthToInternal(camBaseRadius, unitSystem.length);
+      const iRollerR = lengthToInternal(camRollerRadius, unitSystem.length);
+      const iOffset = lengthToInternal(camOffset, unitSystem.length);
+      const iLength = lengthToInternal(camLength, unitSystem.length);
+      const iGroove = lengthToInternal(camGrooveDepth, unitSystem.length);
+
       // Calculate both cam types
       try {
-        const camProfile = buildWasmProfile(segments);
-        const contourResult = evaluate_cam_contour(camProfile, camBaseRadius, camRollerRadius, camOffset, 720);
+        const camProfile = buildWasmProfile(segments, unitSystem);
+        const contourResult = evaluate_cam_contour(camProfile, iBaseR, iRollerR, iOffset, 720);
         setCamContour(contourResult as CamContourData);
       } catch (camErr) {
         console.error("Rotary Cam Error:", camErr);
       }
       try {
-        const linProfile = buildWasmProfile(segments);
-        const linResult = evaluate_linear_cam_contour(linProfile, camLength, camRollerRadius, camGrooveDepth, 720);
+        const linProfile = buildWasmProfile(segments, unitSystem);
+        const linResult = evaluate_linear_cam_contour(linProfile, iLength, iRollerR, iGroove, 720);
         setLinearContour(linResult as LinearCamContourData);
       } catch (linErr) {
         console.error("Linear Cam Error:", linErr);
@@ -163,7 +220,7 @@ function App() {
     } catch (err) {
       console.error("WASM Profile Evaluate Error:", err);
     }
-  }, [wasmReady, segments, camBaseRadius, camRollerRadius, camOffset, camLength, camGrooveDepth]);
+  }, [wasmReady, segments, camBaseRadius, camRollerRadius, camOffset, camLength, camGrooveDepth, unitSystem]);
 
   // Recalculate when segments or cam params change
   useEffect(() => {
@@ -204,9 +261,18 @@ function App() {
         })),
       },
       cam: {
+        type: camType,
         base_radius: camBaseRadius,
         roller_radius: camRollerRadius,
         offset: camOffset,
+        ...(camType === 'linear' ? {
+          cam_length: camLength,
+          groove_depth: camGrooveDepth,
+        } : {}),
+      },
+      units: {
+        length: unitSystem.length,
+        angle: unitSystem.angle,
       },
       diagnostics: evalResult.length > 0 ? {
         max_position: Math.max(...evalResult.map(r => r.s)),
@@ -272,7 +338,7 @@ function App() {
 
             {/* Segment Editor */}
             <div style={{ marginTop: '0.75rem' }}>
-              <SegmentEditor segments={segments} onSegmentsChange={setSegments} />
+              <SegmentEditor segments={segments} onSegmentsChange={setSegments} unitSystem={unitSystem} />
             </div>
 
             {/* Cam Parameters */}
@@ -297,7 +363,7 @@ function App() {
               {/* Shared: Roller Radius */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem', marginBottom: '0.4rem' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
-                  <label style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>Roller R (mm)</label>
+                <label style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>Roller R ({lengthLabel(unitSystem.length)})</label>
                   <input type="number" value={camRollerRadius} min={0} max={100} step={0.5}
                     onChange={e => setCamRollerRadius(parseFloat(e.target.value) || 0)}
                     className="cam-input" />
@@ -308,13 +374,13 @@ function App() {
               {camType === 'rotary' && (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
-                    <label style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>Base R (mm)</label>
+                    <label style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>Base R ({lengthLabel(unitSystem.length)})</label>
                     <input type="number" value={camBaseRadius} min={10} max={500} step={1}
                       onChange={e => setCamBaseRadius(parseFloat(e.target.value) || 60)}
                       className="cam-input" />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
-                    <label style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>Offset (mm)</label>
+                    <label style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>Offset ({lengthLabel(unitSystem.length)})</label>
                     <input type="number" value={camOffset} min={-50} max={50} step={0.5}
                       onChange={e => setCamOffset(parseFloat(e.target.value) || 0)}
                       className="cam-input" />
@@ -326,19 +392,45 @@ function App() {
               {camType === 'linear' && (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem' }}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
-                    <label style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>Cam Length (mm)</label>
+                    <label style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>Cam Length ({lengthLabel(unitSystem.length)})</label>
                     <input type="number" value={camLength} min={50} max={2000} step={10}
                       onChange={e => setCamLength(parseFloat(e.target.value) || 300)}
                       className="cam-input" />
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
-                    <label style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>Groove Depth (mm)</label>
+                    <label style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>Groove Depth ({lengthLabel(unitSystem.length)})</label>
                     <input type="number" value={camGrooveDepth} min={0} max={100} step={1}
                       onChange={e => setCamGrooveDepth(parseFloat(e.target.value) || 0)}
                       className="cam-input" />
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* Unit System Selector */}
+            <div style={{ marginTop: '0.75rem', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '0.75rem' }}>
+              <h3 style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '0.5rem' }}>
+                <Ruler size={14} style={{ verticalAlign: 'middle', marginRight: '0.25rem' }} />
+                Units
+              </h3>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
+                  <label style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>Length</label>
+                  <select value={unitSystem.length}
+                    onChange={e => handleUnitChange({ ...unitSystem, length: e.target.value as LengthUnit })}
+                    style={{ padding: '0.3rem', fontSize: '0.8rem', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: '#e6edf3' }}>
+                    {LENGTH_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem' }}>
+                  <label style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>Angle</label>
+                  <select value={unitSystem.angle}
+                    onChange={e => handleUnitChange({ ...unitSystem, angle: e.target.value as AngleUnit })}
+                    style={{ padding: '0.3rem', fontSize: '0.8rem', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: '4px', color: '#e6edf3' }}>
+                    {ANGLE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+              </div>
             </div>
 
             {/* Diagnostics */}
@@ -354,7 +446,7 @@ function App() {
                 </div>
                 <div className="param-row">
                   <span className="param-label">Max Position</span>
-                  <span className="param-value">{Math.max(...evalResult.map(r => r.s)).toFixed(2)} mm</span>
+                  <span className="param-value">{lengthFromInternal(Math.max(...evalResult.map(r => r.s)), unitSystem.length).toFixed(2)} {lengthLabel(unitSystem.length)}</span>
                 </div>
                 <div className="param-row">
                   <span className="param-label">Max |Velocity|</span>
@@ -380,7 +472,7 @@ function App() {
                     </div>
                     <div className="param-row">
                       <span className="param-label">Min Curvature ρ</span>
-                      <span className="param-value">{cd.min_curvature_radius.toFixed(2)} mm</span>
+                      <span className="param-value">{lengthFromInternal(cd.min_curvature_radius, unitSystem.length).toFixed(2)} {lengthLabel(unitSystem.length)}</span>
                     </div>
                   </>;
                 })()}
@@ -445,6 +537,7 @@ function App() {
                   data={evalResult}
                   layout={chartLayout}
                   segmentBoundaries={segmentBoundaries}
+                  unitSystem={unitSystem}
                 />
               ) : (
                 <div className="chart-placeholder" style={{ height: '100%', margin: 0 }}>
@@ -461,6 +554,7 @@ function App() {
                   rotaryData={camContour}
                   linearData={linearContour}
                   baseRadius={camBaseRadius}
+                  unitSystem={unitSystem}
                 />
               ) : (
                 <div className="chart-placeholder" style={{ height: '100%', margin: 0 }}>

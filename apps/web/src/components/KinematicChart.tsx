@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
     LineChart,
     Line,
@@ -9,6 +9,12 @@ import {
     ReferenceLine,
     ResponsiveContainer
 } from 'recharts';
+import type { UnitSystem } from '../units';
+import {
+    lengthLabel, angleLabel, velocityLabel, accelerationLabel, jerkLabel,
+    displacementFactor, velocityFactor, accelerationFactor, jerkFactor,
+    convertAngle, DEFAULT_UNITS,
+} from '../units';
 
 export interface MotionPoint {
     s: number;
@@ -30,14 +36,10 @@ interface KinematicChartProps {
     data: MotionPoint[];
     layout?: ChartLayout;
     segmentBoundaries?: SegmentBoundary[];
+    unitSystem?: UnitSystem;
 }
 
-const CHART_CONFIG = [
-    { key: 'position', label: 'Position (s)', color: '#3b82f6', unit: 'mm' },
-    { key: 'velocity', label: 'Velocity (v)', color: '#10b981', unit: 'mm/rad' },
-    { key: 'acceleration', label: 'Acceleration (a)', color: '#f59e0b', unit: 'mm/rad²' },
-    { key: 'jerk', label: 'Jerk (j)', color: '#ef4444', unit: 'mm/rad³' },
-] as const;
+// Chart config is now generated dynamically based on units
 
 // Shared sync ID for Recharts native cursor synchronization
 const SYNC_ID = 'motus-kinematic-sync';
@@ -58,50 +60,79 @@ const SyncCursorLine = (props: any) => {
     );
 };
 
+// Custom invisible Tooltip content that captures active data for the info bar
+const DataCapture = ({ active, payload, label, onCapture }: any) => {
+    useEffect(() => {
+        if (active && payload && payload.length > 0) {
+            onCapture({
+                angle: label,
+                position: payload[0]?.payload?.position,
+                velocity: payload[0]?.payload?.velocity,
+                acceleration: payload[0]?.payload?.acceleration,
+                jerk: payload[0]?.payload?.jerk,
+            });
+        }
+    }, [active, payload, label, onCapture]);
+    return null; // Tooltip renders nothing — info bar handles display
+};
+
 export const KinematicChart: React.FC<KinematicChartProps> = ({
     data,
     layout = 'vertical',
     segmentBoundaries = [],
+    unitSystem = DEFAULT_UNITS,
 }) => {
     const [activeData, setActiveData] = useState<Record<string, any> | null>(null);
 
-    // Convert data to Recharts format — use fractional angle for smooth interpolation
-    const chartData = useMemo(() => data.map((point, index) => {
-        const angle = (index / (Math.max(1, data.length - 1))) * 360;
-        return {
-            angle: Number(angle.toFixed(1)),
-            position: Number(point.s.toFixed(4)),
-            velocity: Number(point.v.toFixed(4)),
-            acceleration: Number(point.a.toFixed(4)),
-            jerk: Number(point.j.toFixed(4)),
-        };
-    }), [data]);
+    // Dynamic chart config based on current units
+    const CHART_CONFIG = useMemo(() => [
+        { key: 'position', label: 'Position (s)', color: '#3b82f6', unit: lengthLabel(unitSystem.length) },
+        { key: 'velocity', label: 'Velocity (v)', color: '#10b981', unit: velocityLabel(unitSystem) },
+        { key: 'acceleration', label: 'Acceleration (a)', color: '#f59e0b', unit: accelerationLabel(unitSystem) },
+        { key: 'jerk', label: 'Jerk (j)', color: '#ef4444', unit: jerkLabel(unitSystem) },
+    ], [unitSystem]);
 
-    // Handle tooltip activation from any chart — updates info bar
-    const handleTooltipUpdate = useCallback((state: any) => {
-        if (state?.activePayload && state.activePayload.length > 0) {
-            // Find corresponding full data at this index
-            const activeLabel = state.activeLabel;
-            const idx = chartData.findIndex(d => d.angle === activeLabel);
-            if (idx >= 0) {
-                setActiveData(chartData[idx]);
-            }
-        }
-    }, [chartData]);
+    // Stable callback for DataCapture
+    const handleCapture = useCallback((d: Record<string, any>) => {
+        setActiveData(d);
+    }, []);
 
     const handleMouseLeave = useCallback(() => {
         setActiveData(null);
     }, []);
 
-    // Unique boundaries (avoid duplicate lines at shared edges)
+    // Conversion factors for WASM output (mm, rad) → display units
+    const sFactor = displacementFactor(unitSystem);
+    const vFactor = velocityFactor(unitSystem);
+    const aFactor = accelerationFactor(unitSystem);
+    const jFactor = jerkFactor(unitSystem);
+
+    // Convert data to Recharts format with unit conversion
+    const chartData = useMemo(() => data.map((point, index) => {
+        const angle = (index / (Math.max(1, data.length - 1))) * 360;
+        const displayAngle = unitSystem.angle === 'rad'
+            ? convertAngle(angle, 'deg', 'rad')
+            : angle;
+        return {
+            angle: Number(displayAngle.toFixed(unitSystem.angle === 'rad' ? 4 : 1)),
+            position: Number((point.s * sFactor).toFixed(4)),
+            velocity: Number((point.v * vFactor).toFixed(4)),
+            acceleration: Number((point.a * aFactor).toFixed(4)),
+            jerk: Number((point.j * jFactor).toFixed(4)),
+        };
+    }), [data, sFactor, vFactor, aFactor, jFactor, unitSystem.angle]);
+
     const boundaryAngles = useMemo(() => {
         const angles = new Set<number>();
         segmentBoundaries.forEach(b => {
-            if (b.phi_start > 0) angles.add(b.phi_start);
-            if (b.phi_end < 360) angles.add(b.phi_end);
+            const start = unitSystem.angle === 'rad' ? convertAngle(b.phi_start, 'deg', 'rad') : b.phi_start;
+            const end = unitSystem.angle === 'rad' ? convertAngle(b.phi_end, 'deg', 'rad') : b.phi_end;
+            const maxAngle = unitSystem.angle === 'rad' ? convertAngle(360, 'deg', 'rad') : 360;
+            if (start > 0) angles.add(Number(start.toFixed(4)));
+            if (end < maxAngle) angles.add(Number(end.toFixed(4)));
         });
         return Array.from(angles);
-    }, [segmentBoundaries]);
+    }, [segmentBoundaries, unitSystem.angle]);
 
     const isVertical = layout === 'vertical';
 
@@ -127,12 +158,12 @@ export const KinematicChart: React.FC<KinematicChartProps> = ({
                 flexShrink: 0,
             }}>
                 <span style={{ color: '#94a3b8', fontWeight: 600 }}>
-                    φ = {activeData !== null ? `${activeData.angle}°` : '—'}
+                    φ = {activeData !== null ? `${activeData.angle}${angleLabel(unitSystem.angle)}` : '—'}
                 </span>
                 {activeData && CHART_CONFIG.map(cfg => (
                     <span key={cfg.key} style={{ color: cfg.color }}>
                         {cfg.label.split(' ')[0]}:{' '}
-                        <strong>{activeData[cfg.key]}</strong>
+                        <strong>{activeData[cfg.key]?.toFixed?.(3) ?? activeData[cfg.key]}</strong>
                         <span style={{ opacity: 0.5, fontSize: '0.7rem', marginLeft: '2px' }}>{cfg.unit}</span>
                     </span>
                 ))}
@@ -187,7 +218,6 @@ export const KinematicChart: React.FC<KinematicChartProps> = ({
                                         left: 0,
                                         bottom: showXAxis ? 0 : -20,
                                     }}
-                                    onMouseMove={handleTooltipUpdate}
                                     onMouseLeave={handleMouseLeave}
                                 >
                                     <CartesianGrid
@@ -210,9 +240,9 @@ export const KinematicChart: React.FC<KinematicChartProps> = ({
                                         tickFormatter={(v: number) => v.toFixed(1)}
                                     />
 
-                                    {/* Tooltip with cursor line — syncId synchronizes across charts */}
+                                    {/* Invisible tooltip that captures active data for the info bar */}
                                     <Tooltip
-                                        content={() => null}
+                                        content={<DataCapture onCapture={handleCapture} />}
                                         cursor={<SyncCursorLine />}
                                         isAnimationActive={false}
                                     />
