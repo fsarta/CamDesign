@@ -37,6 +37,7 @@ interface KinematicChartProps {
     layout?: ChartLayout;
     segmentBoundaries?: SegmentBoundary[];
     unitSystem?: UnitSystem;
+    rpm?: number;
 }
 
 // Chart config is now generated dynamically based on units
@@ -81,6 +82,7 @@ export const KinematicChart: React.FC<KinematicChartProps> = ({
     layout = 'vertical',
     segmentBoundaries = [],
     unitSystem = DEFAULT_UNITS,
+    rpm = 0,
 }) => {
     const [activeData, setActiveData] = useState<Record<string, any> | null>(null);
 
@@ -170,6 +172,18 @@ export const KinematicChart: React.FC<KinematicChartProps> = ({
                 {!activeData && (
                     <span style={{ color: '#475569', fontStyle: 'italic' }}>Hover on a chart to see values</span>
                 )}
+                {activeData && rpm > 0 && (() => {
+                    const omega = (2 * Math.PI * rpm) / 60;
+                    const vt = (activeData.velocity / vFactor) * omega; // mm/rad * rad/s = mm/s
+                    const at = (activeData.acceleration / aFactor) * (omega ** 2);
+                    const jt = (activeData.jerk / jFactor) * (omega ** 3);
+                    return (
+                        <span style={{ color: '#8b5cf6', fontSize: '0.7rem', borderLeft: '1px solid rgba(255,255,255,0.1)', paddingLeft: '0.5rem', marginLeft: '0.25rem' }}>
+                            <strong>@{rpm}rpm</strong>{' '}
+                            v={vt.toFixed(1)}mm/s | a={at.toFixed(0)}mm/s² | j={jt.toFixed(0)}mm/s³
+                        </span>
+                    );
+                })()}
             </div>
 
             {/* Charts — all share syncId for pixel-perfect cursor sync */}

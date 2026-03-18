@@ -1,7 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
-:root {
-  /* Color Palette - Premium Dark Mode inspired */
+:root, [data-theme="dark"] {
+  /* Color Palette - Premium Dark Mode */
   --bg-gradient-start: #0f172a;
   --bg-gradient-end: #1e293b;
   --surface-color: rgba(30, 41, 59, 0.7);
@@ -13,6 +13,8 @@
   --success: #10b981;
   --danger: #ef4444;
   --warning: #f59e0b;
+  --glass-bg: rgba(255, 255, 255, 0.05);
+  --glass-border: rgba(255, 255, 255, 0.15);
 
   /* Geometry & Spacing */
   --radius-sm: 8px;
@@ -21,6 +23,19 @@
   --spacing-sm: 0.5rem;
   --spacing-md: 1rem;
   --spacing-lg: 1.5rem;
+}
+
+[data-theme="light"] {
+  --bg-gradient-start: #f1f5f9;
+  --bg-gradient-end: #e2e8f0;
+  --surface-color: rgba(255, 255, 255, 0.85);
+  --surface-border: rgba(0, 0, 0, 0.1);
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --accent-color: #2563eb;
+  --accent-hover: #3b82f6;
+  --glass-bg: rgba(0, 0, 0, 0.03);
+  --glass-border: rgba(0, 0, 0, 0.12);
 }
 
 * {

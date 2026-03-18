@@ -1,12 +1,14 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import init, { evaluate_profile, evaluate_cam_contour, evaluate_linear_cam_contour } from 'motus_wasm';
-import { Activity, Settings, Play, GitMerge, Layers, LayoutGrid, AlignJustify, Circle, Download, BarChart3, ArrowRight, Ruler } from 'lucide-react';
+import { Activity, Settings, Play, Layers, LayoutGrid, AlignJustify, Circle, Download, Upload, BarChart3, ArrowRight, Ruler, Undo2, Redo2, Sun, Moon, Gauge } from 'lucide-react';
 import { KinematicChart } from './components/KinematicChart';
 import type { MotionPoint, ChartLayout, SegmentBoundary } from './components/KinematicChart';
 import { CamContourChart } from './components/CamContourChart';
 import type { CamContourData, LinearCamContourData, CamDisplayType } from './components/CamContourChart';
 import { SegmentEditor } from './components/SegmentEditor';
 import type { SegmentDef } from './components/SegmentEditor';
+import { ContinuityCheck } from './components/ContinuityCheck';
+import { CamAnimation } from './components/CamAnimation';
 import { fetchProjects } from './api';
 import type { Project } from './api';
 import type { UnitSystem, LengthUnit, AngleUnit } from './units';
@@ -15,9 +17,15 @@ import {
   convertLength, convertAngle, lengthLabel, lengthFromInternal,
   lengthToInternal,
 } from './units';
+import { useHistory } from './hooks/useHistory';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+import { t, LOCALE_OPTIONS } from './i18n';
+import type { Locale } from './i18n';
+import { applyTheme } from './theme';
+import type { Theme } from './theme';
 import './index.css';
 
-type ViewTab = 'kinematic' | 'cam';
+type ViewTab = 'kinematic' | 'cam' | 'animation';
 
 // Default composed profile: Rise + Dwell + Return
 const DEFAULT_SEGMENTS: SegmentDef[] = [
@@ -121,11 +129,23 @@ function buildWasmProfile(segments: SegmentDef[], units: UnitSystem) {
 function App() {
   const [wasmReady, setWasmReady] = useState(false);
   const [evalResult, setEvalResult] = useState<MotionPoint[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [segments, setSegments] = useState<SegmentDef[]>(DEFAULT_SEGMENTS);
+  const [_projects, setProjects] = useState<Project[]>([]);
+  const segHistory = useHistory<SegmentDef[]>(DEFAULT_SEGMENTS);
+  const segments = segHistory.current;
+  const setSegments = segHistory.set;
   const [calcTimeMs, setCalcTimeMs] = useState<number>(0);
   const [chartLayout, setChartLayout] = useState<ChartLayout>('vertical');
   const [activeTab, setActiveTab] = useState<ViewTab>('kinematic');
+
+  // Theme & Locale
+  const [theme, setTheme] = useState<Theme>('dark');
+  const [locale, setLocale] = useState<Locale>('en');
+
+  // RPM for time-domain analysis
+  const [rpm, setRpm] = useState<number>(0);
+
+  // File import ref
+  const importRef = useRef<HTMLInputElement>(null);
 
   // Cam parameters
   const [camType, setCamType] = useState<CamDisplayType>('rotary');
@@ -170,7 +190,59 @@ function App() {
     }
     prevUnitsRef.current = newUnits;
     setUnitSystem(newUnits);
+  }, [setSegments]);
+
+  // Apply theme on change
+  useEffect(() => { applyTheme(theme); }, [theme]);
+
+  // Import handler
+  const handleImport = useCallback(() => {
+    importRef.current?.click();
   }, []);
+
+  const handleFileImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target?.result as string);
+        if (data.segments && Array.isArray(data.segments)) {
+          const imported = data.segments.map((s: any) => ({
+            id: s.id || crypto.randomUUID(),
+            name: s.name || 'Imported',
+            law: s.law || 'Dwell',
+            phi_start: s.phi_start ?? 0,
+            phi_end: s.phi_end ?? 60,
+            stroke: s.stroke ?? 0,
+            s_start: s.s_start ?? 0,
+            boundary_conditions: s.boundary_conditions || {
+              start_velocity: { Fixed: 0 }, end_velocity: { Fixed: 0 },
+              start_acceleration: { Fixed: 0 }, end_acceleration: { Fixed: 0 },
+              start_jerk: 'Free', end_jerk: 'Free',
+            },
+            color: s.color || '#3b82f6',
+            metadata: s.metadata || {},
+            bezier_cx1: s.bezier_cx1, bezier_cy1: s.bezier_cy1,
+            bezier_cx2: s.bezier_cx2, bezier_cy2: s.bezier_cy2,
+          }));
+          setSegments(imported);
+          if (data.cam) {
+            if (data.cam.base_radius) setCamBaseRadius(data.cam.base_radius);
+            if (data.cam.roller_radius) setCamRollerRadius(data.cam.roller_radius);
+            if (data.cam.offset !== undefined) setCamOffset(data.cam.offset);
+            if (data.cam.type) setCamType(data.cam.type);
+            if (data.cam.cam_length) setCamLength(data.cam.cam_length);
+            if (data.cam.groove_depth !== undefined) setCamGrooveDepth(data.cam.groove_depth);
+          }
+        }
+      } catch (err) {
+        console.error('Import error:', err);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = ''; // Reset for re-import
+  }, [setSegments]);
 
   // Segment boundaries for chart overlay
   const segmentBoundaries: SegmentBoundary[] = useMemo(() =>
@@ -290,10 +362,23 @@ function App() {
     a.download = 'motus_profile.json';
     a.click();
     URL.revokeObjectURL(url);
-  }, [segments, camBaseRadius, camRollerRadius, camOffset, evalResult, calcTimeMs]);
+  }, [segments, camBaseRadius, camRollerRadius, camOffset, evalResult, calcTimeMs, unitSystem, camType, camLength, camGrooveDepth]);
+
+  // Keyboard shortcuts
+  useKeyboardShortcuts(useMemo(() => ({
+    undo: segHistory.undo,
+    redo: segHistory.redo,
+    save: handleExport,
+    recalculate: calculateProfile,
+    importFile: handleImport,
+  }), [segHistory.undo, segHistory.redo, handleExport, calculateProfile, handleImport]));
 
   return (
     <div className="app-container">
+      {/* Hidden file input for import */}
+      <input type="file" ref={importRef} accept=".json" style={{ display: 'none' }}
+        onChange={handleFileImport} />
+
       {/* Top Navigation */}
       <header className="top-bar">
         <div className="logo-area">
@@ -301,23 +386,38 @@ function App() {
           <span>MOTUS NOVA</span>
         </div>
 
-        <div className="actions" style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-          {projects.length > 0 && (
-            <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-              Project: <strong>{projects[0].name}</strong>
-            </span>
-          )}
-          <button className="glass-button" onClick={handleExport} title="Export profile as JSON">
-            <Download size={15} />
-            Export
+        <div className="actions" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          {/* Locale selector */}
+          <select value={locale} onChange={e => setLocale(e.target.value as Locale)}
+            style={{ background: 'var(--glass-bg)', border: '1px solid var(--surface-border)', borderRadius: '4px', color: 'var(--text-primary)', padding: '0.25rem 0.4rem', fontSize: '0.75rem', cursor: 'pointer' }}>
+            {LOCALE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+
+          {/* Theme toggle */}
+          <button className="glass-button" onClick={() => setTheme(th => th === 'dark' ? 'light' : 'dark')}
+            title={theme === 'dark' ? 'Switch to Light' : 'Switch to Dark'}
+            style={{ padding: '0.3rem 0.5rem' }}>
+            {theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />}
           </button>
-          <button className="glass-button">
-            <GitMerge size={15} />
-            Draft
+
+          {/* Undo/Redo */}
+          <button className="glass-button" onClick={segHistory.undo} disabled={!segHistory.canUndo}
+            title="Undo (Ctrl+Z)" style={{ padding: '0.3rem 0.5rem', opacity: segHistory.canUndo ? 1 : 0.3 }}>
+            <Undo2 size={15} />
+          </button>
+          <button className="glass-button" onClick={segHistory.redo} disabled={!segHistory.canRedo}
+            title="Redo (Ctrl+Y)" style={{ padding: '0.3rem 0.5rem', opacity: segHistory.canRedo ? 1 : 0.3 }}>
+            <Redo2 size={15} />
+          </button>
+
+          <button className="glass-button" onClick={handleImport} title="Import profile (Ctrl+O)">
+            <Upload size={15} /> {t('app.import', locale)}
+          </button>
+          <button className="glass-button" onClick={handleExport} title="Export profile (Ctrl+S)">
+            <Download size={15} /> {t('app.export', locale)}
           </button>
           <button className="glass-button primary pulse" onClick={calculateProfile} disabled={!wasmReady}>
-            <Play size={15} />
-            Recalculate
+            <Play size={15} /> {t('app.recalculate', locale)}
           </button>
         </div>
       </header>
@@ -485,8 +585,30 @@ function App() {
                   <span className="param-label">Samples</span>
                   <span className="param-value">{evalResult.length}</span>
                 </div>
+
+                {/* Continuity Check */}
+                <ContinuityCheck data={evalResult} segments={segments} />
               </div>
             )}
+
+            {/* RPM / Time Domain */}
+            <div style={{ marginTop: '0.75rem', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '0.75rem' }}>
+              <h3 style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '0.5rem' }}>
+                <Gauge size={14} style={{ verticalAlign: 'middle', marginRight: '0.25rem' }} />
+                {t('sidebar.rpm', locale)}
+              </h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <input type="number" value={rpm} min={0} max={10000} step={10}
+                  onChange={e => setRpm(parseFloat(e.target.value) || 0)}
+                  className="cam-input" style={{ width: '80px' }} />
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>RPM</span>
+                {rpm > 0 && (
+                  <span style={{ fontSize: '0.65rem', color: '#64748b', marginLeft: 'auto' }}>
+                    ω = {(2 * Math.PI * rpm / 60).toFixed(2)} rad/s
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
         </aside>
 
@@ -495,17 +617,17 @@ function App() {
           {/* Tab Bar */}
           <div className="panel-header" style={{ padding: '0.5rem 1rem 0', gap: '0' }}>
             <div className="tab-bar">
-              <button
-                className={`tab-btn ${activeTab === 'kinematic' ? 'active' : ''}`}
-                onClick={() => setActiveTab('kinematic')}
-              >
-                <BarChart3 size={14} /> Kinematic
+              <button className={`tab-btn ${activeTab === 'kinematic' ? 'active' : ''}`}
+                onClick={() => setActiveTab('kinematic')}>
+                <BarChart3 size={14} /> {t('tab.kinematic', locale)}
               </button>
-              <button
-                className={`tab-btn ${activeTab === 'cam' ? 'active' : ''}`}
-                onClick={() => setActiveTab('cam')}
-              >
-                <Circle size={14} /> Cam Contour
+              <button className={`tab-btn ${activeTab === 'cam' ? 'active' : ''}`}
+                onClick={() => setActiveTab('cam')}>
+                <Circle size={14} /> {t('tab.camContour', locale)}
+              </button>
+              <button className={`tab-btn ${activeTab === 'animation' ? 'active' : ''}`}
+                onClick={() => setActiveTab('animation')}>
+                <Play size={14} /> {t('tab.animation', locale)}
               </button>
             </div>
 
@@ -538,6 +660,7 @@ function App() {
                   layout={chartLayout}
                   segmentBoundaries={segmentBoundaries}
                   unitSystem={unitSystem}
+                  rpm={rpm}
                 />
               ) : (
                 <div className="chart-placeholder" style={{ height: '100%', margin: 0 }}>
@@ -562,6 +685,14 @@ function App() {
                   <h3>Cam Contour — Waiting for calculation</h3>
                 </div>
               )
+            )}
+
+            {activeTab === 'animation' && (
+              <CamAnimation
+                camData={camContour}
+                profileData={evalResult}
+                baseRadius={camBaseRadius}
+              />
             )}
           </div>
         </section>
