@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 pub mod calculation;
+pub mod dynamics;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RotationDirection {

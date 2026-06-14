@@ -79,19 +79,9 @@ pub fn calculate_cam_contour(
             f64::INFINITY
         };
 
-        // Cam contour = pitch curve offset by roller radius along the normal
-        // For simplicity with roller, the actual cam contour point is:
-        // cam_point = pitch_point - rr * normal_direction
-        // For a disc cam, the inner (working) contour:
-        let (cam_x, cam_y) = if rr > 0.0 && rho_curvature.is_finite() {
-            // Normal direction at the pitch point
-            let rho_cam = rho_curvature - rr;
-            // Approximate: offset along radial direction
-            let scale = if rho_pitch > 1e-12 { (rho_pitch - rr) / rho_pitch } else { 1.0 };
-            (xp * scale, yp * scale)
-        } else {
-            (xp, yp)
-        };
+        // Cam contour = pitch curve offset by roller radius along the inward normal.
+        // We store the pitch point and will compute normals in a post-processing step.
+        // For now, store (xp, yp) as the pitch point — the normal offset is applied below.
 
         max_pa = max_pa.max(pressure_angle_deg.abs());
         if rho_curvature.is_finite() {
@@ -101,12 +91,42 @@ pub fn calculate_cam_contour(
         points.push(CamContourPoint {
             angle_deg,
             s,
-            x: cam_x,
-            y: cam_y,
+            x: xp,  // Temporarily store pitch point — will offset below
+            y: yp,
             pressure_angle: pressure_angle_deg,
             curvature_radius: rho_curvature,
         });
     }
+
+    // Post-process: offset each pitch point by roller radius along the inward normal.
+    // The normal is computed from the tangent vector (finite differences on the pitch curve).
+    if rr > 0.0 && points.len() >= 3 {
+        let n = points.len();
+        let pitch_x: Vec<f64> = points.iter().map(|p| p.x).collect();
+        let pitch_y: Vec<f64> = points.iter().map(|p| p.y).collect();
+
+        for i in 0..n {
+            // Central differences for tangent (with wrapping for closed curve)
+            let prev = if i == 0 { n - 1 } else { i - 1 };
+            let next = if i == n - 1 { 0 } else { i + 1 };
+
+            let tx = pitch_x[next] - pitch_x[prev];
+            let ty = pitch_y[next] - pitch_y[prev];
+            let norm = (tx * tx + ty * ty).sqrt();
+
+            if norm > 1e-12 {
+                // Inward normal: rotate tangent by -90° (for CCW cam contour)
+                let nx = ty / norm;
+                let ny = -tx / norm;
+
+                // Offset pitch point inward by roller radius
+                points[i].x = pitch_x[i] - rr * nx;
+                points[i].y = pitch_y[i] - rr * ny;
+            }
+            // If norm ≈ 0, keep the pitch point as-is (degenerate case)
+        }
+    }
+
 
     CamContourResult {
         points,

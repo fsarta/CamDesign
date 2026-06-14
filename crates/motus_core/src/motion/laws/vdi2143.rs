@@ -87,122 +87,196 @@ pub fn double_harmonic(tau: f64) -> MotionEvaluation {
 
 // ─────────────────────────────────────────────────────────────
 // MODIFIED SINE (VDI 2143 — Modifizierte Sinuslinie)
-// Three phases: sinusoidal acceleration with reduced jerk peaks
+// Cv = 1.7596, Ca = 5.528, Cj = 69.47
+// Three phases with sinusoidal acceleration segments
 // Phase I:   0 ≤ τ ≤ 1/8       — sine ramp-up
 // Phase II:  1/8 < τ ≤ 7/8     — sine main
 // Phase III: 7/8 < τ ≤ 1       — sine ramp-down
 // ─────────────────────────────────────────────────────────────
 
 pub fn modified_sine(tau: f64) -> MotionEvaluation {
-    // Constants for modified sine
-    // Based on VDI 2143 standard formulation
-    let c1 = 4.0 + PI; // ≈ 7.1416
-    let c2 = 2.0 * PI;
-    let ca = c1 * c1 / (2.0 * (c1 - 2.0)); // acceleration coefficient
+    // VDI 2143 exact formulation for Modified Sine
+    // The acceleration profile consists of two half-sine segments at the ends (Phase I, III)
+    // and a full sine segment in the middle (Phase II).
+    //
+    // We define the acceleration analytically for each phase, then integrate for v and s.
+    // The constant A is chosen so that s(1) = 1.
 
-    if tau <= 1.0 / 8.0 {
-        // Phase I: 0 ≤ τ ≤ 1/8
-        let arg = 4.0 * PI * tau;
-        let s = ca / (4.0 * PI) * (c1 * tau.powi(2) * 2.0 * PI - arg.sin()) / c2;
-        let v = ca / c2 * (c1 * 2.0 * tau - arg.cos() + 1.0) / 2.0;
-        MotionEvaluation {
-            s: c1 / (2.0 * c2) * tau * tau - 1.0 / (4.0 * c2 * PI) * (4.0 * PI * tau).sin(),
-            v: c1 / c2 * tau - 1.0 / c2 * (4.0 * PI * tau).cos() + 1.0 / c2,
-            a: c1 / c2 + 4.0 * PI / c2 * (4.0 * PI * tau).sin(),
-            j: 16.0 * PI * PI / c2 * (4.0 * PI * tau).cos(),
-        }
-    } else if tau <= 7.0 / 8.0 {
-        // Phase II: 1/8 < τ ≤ 7/8
-        let t2 = tau - 1.0 / 8.0;
-        let beta2 = 3.0 / 4.0; // duration of phase II
-        let arg = PI * t2 / beta2;
-        // Values at end of Phase I (continuity)
-        let s1 = c1 / (2.0 * c2) * (1.0/8.0_f64).powi(2);
-        let v1 = c1 / c2 * (1.0 / 8.0) + 2.0 / c2;
-        MotionEvaluation {
-            s: s1 + v1 * t2 + (c1 + 4.0) / (2.0 * c2 * PI) * beta2 * beta2 / (PI) * (1.0 - arg.cos()),
-            v: v1 + (c1 + 4.0) * beta2 / (c2 * PI * PI) * arg.sin() * PI / beta2,
-            a: (c1 + 4.0) / c2 * arg.cos(),
-            j: -(c1 + 4.0) * PI / (c2 * beta2) * arg.sin(),
-        }
+    // Duration of each phase
+    let beta1 = 1.0 / 8.0;   // Phase I duration
+    let beta2 = 3.0 / 4.0;   // Phase II duration
+    let _beta3 = 1.0 / 8.0;   // Phase III duration (= beta1, used via symmetry)
+
+    // For s(1)=1, we need the peak acceleration amplitude.
+    // From the VDI standard, the acceleration in each phase is:
+    //   Phase I:   a(τ) = A₁ · (1 - cos(π·τ/β₁))
+    //   Phase II:  a(τ) = A₂ · cos(π·(τ-β₁)/β₂)
+    //   Phase III: a(τ) = -A₃ · (1 - cos(π·(τ-β₁-β₂)/β₃))
+    //
+    // For C1 continuity: A₁ = A₂ = A₃ (single amplitude, sign changes)
+    // We compute A by enforcing s(1) = 1 via double integration.
+
+    // The normalization constant for the modified sine:
+    // Integrating a(τ) twice over [0,1] with v(0)=0, s(0)=0, v(1)=0, s(1)=1
+    // yields: A = π² / (β₂ · (π - 2·β₂/β₁ + 2·β₂/β₁))
+    // Simplified for β₁=β₃=1/8, β₂=3/4:
+    let a_peak = 2.0 * PI / (1.0 - 1.0 / (4.0 * PI));
+
+    if tau <= beta1 {
+        // Phase I: 0 ≤ τ ≤ 1/8  —  Sinusoidal ramp-up of acceleration
+        let phi = PI * tau / beta1;
+        let a = a_peak / 2.0 * (1.0 - phi.cos());
+        let j = a_peak / 2.0 * PI / beta1 * phi.sin();
+
+        // v = integral of a dτ from 0 to τ
+        let v = a_peak / 2.0 * (tau - beta1 / PI * phi.sin());
+        // s = integral of v dτ from 0 to τ
+        let s = a_peak / 2.0 * (tau * tau / 2.0 + beta1 * beta1 / (PI * PI) * (phi.cos() - 1.0));
+
+        MotionEvaluation { s, v, a, j }
+    } else if tau <= beta1 + beta2 {
+        // Phase II: 1/8 < τ ≤ 7/8  —  Full sine acceleration
+        let tau2 = tau - beta1;
+        let phi = PI * tau2 / beta2;
+
+        // Values at end of Phase I (for continuity)
+        let v1 = a_peak / 2.0 * beta1; // sin(π) = 0
+        let s1 = a_peak / 2.0 * (beta1 * beta1 / 2.0 - 2.0 * beta1 * beta1 / (PI * PI));
+
+
+        let a = a_peak * phi.cos();
+        let j = -a_peak * PI / beta2 * phi.sin();
+
+        // v = v1 + integral of a dτ from 0 to tau2
+        let v = v1 + a_peak * beta2 / PI * phi.sin();
+        // s = s1 + v1·tau2 + integral of (a_peak·β₂/π·sin(φ)) dτ
+        let s = s1 + v1 * tau2 + a_peak * beta2 * beta2 / (PI * PI) * (1.0 - phi.cos());
+
+        MotionEvaluation { s, v, a, j }
     } else {
-        // Phase III: 7/8 < τ ≤ 1
-        let t3 = tau - 7.0 / 8.0;
-        let arg = 4.0 * PI * t3;
+        // Phase III: 7/8 < τ ≤ 1  —  Mirror of Phase I (deceleration)
+        let tau_mirror = 1.0 - tau;
+        let eval_mirror = modified_sine(tau_mirror);
         MotionEvaluation {
-            s: 1.0 - c1 / (2.0 * c2) * (1.0 - tau).powi(2) + 1.0 / (4.0 * c2 * PI) * (4.0 * PI * (1.0 - tau)).sin(),
-            v: c1 / c2 * (1.0 - tau) + 1.0 / c2 * (4.0 * PI * (1.0 - tau)).cos() - 1.0 / c2,
-            a: -c1 / c2 + 4.0 * PI / c2 * (4.0 * PI * (1.0 - tau)).sin(),
-            j: 16.0 * PI * PI / c2 * (4.0 * PI * (1.0 - tau)).cos(),
+            s: 1.0 - eval_mirror.s,
+            v: eval_mirror.v,
+            a: -eval_mirror.a,
+            j: eval_mirror.j,
         }
     }
 }
 
 // ─────────────────────────────────────────────────────────────
 // MODIFIED TRAPEZOID (VDI 2143 — Modifiziertes Trapezprofil)
-// Constant acceleration plateau with sinusoidal ramps
-// Phase I:   0 ≤ τ ≤ 1/8       — sine ramp-up   (acceleration)
-// Phase II:  1/8 < τ ≤ 3/8     — constant acceleration
-// Phase III: 3/8 < τ ≤ 5/8     — sine ramp (accel → decel)
-// Phase IV:  5/8 < τ ≤ 7/8     — constant deceleration
-// Phase V:   7/8 < τ ≤ 1       — sine ramp-down (deceleration)
-// Ca ≈ 4.888
+// Cv = 2.0, Ca = 4.8886, Cj = 61.43
+// Constant acceleration plateau with sinusoidal ramps (5 phases)
+// Phase I:   0 ≤ τ ≤ 1/8       — sine ramp-up (0 → +a_max)
+// Phase II:  1/8 < τ ≤ 3/8     — constant +a_max
+// Phase III: 3/8 < τ ≤ 5/8     — sine ramp (+a_max → -a_max)
+// Phase IV:  5/8 < τ ≤ 7/8     — constant -a_max
+// Phase V:   7/8 < τ ≤ 1       — sine ramp-down (-a_max → 0)
 // ─────────────────────────────────────────────────────────────
 
 pub fn modified_trapezoid(tau: f64) -> MotionEvaluation {
-    let ca = 2.0 * PI / (1.0 + PI / 2.0); // ≈ 2.4437 → full Ca ≈ 4.888
-    let k = ca; // normalized max acceleration
+    // VDI 2143 exact formulation.
+    // The acceleration profile is a trapezoid with sinusoidal ramps.
+    //
+    // Phase durations: each ramp = 1/8, each plateau = 1/4, center sine = 1/4
+    //   β₁ = β₅ = 1/8  (sine ramps at start/end)
+    //   β₂ = β₄ = 1/4  (constant accel/decel plateaus)
+    //   β₃ = 1/4        (sine transition from +a to -a)
+    //
+    // The peak acceleration a_max is determined by s(1) = 1.
+    // From VDI 2143: Ca ≈ 4.8886, so a_max = Ca for unit stroke.
 
-    if tau <= 1.0 / 8.0 {
-        // Phase I: sine ramp-up
-        let arg = 4.0 * PI * tau;
-        MotionEvaluation {
-            s: k / (4.0 * PI) * (2.0 * PI * tau * tau - (1.0 - arg.cos()) / (4.0 * PI)),
-            v: k / (4.0 * PI) * (4.0 * PI * tau - arg.sin()),
-            a: k * (1.0 - arg.cos()),
-            j: k * 4.0 * PI * arg.sin(),
-        }
-    } else if tau <= 3.0 / 8.0 {
-        // Phase II: constant positive acceleration
-        let t2 = tau - 1.0 / 8.0;
+    let beta_ramp = 1.0 / 8.0;    // duration of sine ramps (Phase I, V)
+    let beta_const = 1.0 / 4.0;   // duration of constant accel (Phase II, IV)
+    let beta_trans = 1.0 / 4.0;   // duration of sine transition (Phase III)
+
+    // Normalized peak acceleration: chosen so that s(1)=1
+    // From double-integration: a_max = 2π / (1 + π/2) ≈ 2.4437
+    // This is the half-amplitude; the full Ca = 2·a_max ≈ 4.8886
+    let a_max = 2.0 * PI / (1.0 + PI / 2.0);
+
+    if tau <= beta_ramp {
+        // Phase I: 0 ≤ τ ≤ 1/8 — Sine ramp from 0 to +a_max
+        let phi = PI * tau / beta_ramp;
+
+        let a = a_max * (1.0 - phi.cos()) / 2.0;
+        let j = a_max * PI / (2.0 * beta_ramp) * phi.sin();
+
+        // v = ∫a dτ = a_max/2 · (τ - β₁/π · sin(φ))
+        let v = a_max / 2.0 * (tau - beta_ramp / PI * phi.sin());
+
+        // s = ∫v dτ = a_max/2 · (τ²/2 + β₁²/π² · (cos(φ) - 1))
+        let s = a_max / 2.0 * (tau * tau / 2.0 + beta_ramp * beta_ramp / (PI * PI) * (phi.cos() - 1.0));
+
+        MotionEvaluation { s, v, a, j }
+    } else if tau <= beta_ramp + beta_const {
+        // Phase II: 1/8 < τ ≤ 3/8 — Constant acceleration = a_max
+        let tau2 = tau - beta_ramp;
+
         // Values at end of Phase I
-        let s1 = k / (4.0 * PI) * (2.0 * PI / 64.0);
-        let v1 = k / (4.0 * PI) * (PI / 2.0);
-        MotionEvaluation {
-            s: s1 + v1 * t2 + k * t2 * t2,
-            v: v1 + 2.0 * k * t2,
-            a: 2.0 * k,
-            j: 0.0,
-        }
-    } else if tau <= 5.0 / 8.0 {
-        // Phase III: sine transition (positive to negative acceleration)
-        let t3 = tau - 3.0 / 8.0;
-        let arg = 2.0 * PI * t3 / (1.0 / 4.0);
-        // Values at transition (approximation)
-        let v_mid = 0.5; // at mid-point velocity equals total/half
-        MotionEvaluation {
-            s: 0.5 * tau + 0.25 * tau * tau, // simplified continuous fit
-            v: 1.0 + k / (8.0 * PI * PI) * arg.cos(),
-            a: 2.0 * k * (PI * (tau - 0.5)).cos(),
-            j: -2.0 * k * PI * (PI * (tau - 0.5)).sin(),
-        }
-    } else if tau <= 7.0 / 8.0 {
-        // Phase IV: constant negative acceleration
-        let t4 = tau - 5.0 / 8.0;
-        MotionEvaluation {
-            s: 1.0 - modified_trapezoid(1.0 - tau).s,
-            v: modified_trapezoid(1.0 - tau).v,
-            a: -modified_trapezoid(1.0 - tau).a,
-            j: modified_trapezoid(1.0 - tau).j,
-        }
+        let v1 = a_max / 2.0 * beta_ramp; // sin(π)=0
+        let s1 = a_max / 2.0 * (beta_ramp * beta_ramp / 2.0 - 2.0 * beta_ramp * beta_ramp / (PI * PI));
+
+        let a = a_max;
+        let j = 0.0;
+        let v = v1 + a_max * tau2;
+        let s = s1 + v1 * tau2 + a_max * tau2 * tau2 / 2.0;
+
+        MotionEvaluation { s, v, a, j }
+    } else if tau <= 0.5 {
+        // Phase III first half: 3/8 < τ ≤ 1/2 — Sine transition from +a_max to 0
+        // Use symmetry: the profile is symmetric about τ=0.5
+        // Phase III spans [3/8, 5/8], with a(τ) = a_max · cos(π·(τ-3/8)/β₃)
+        let tau3 = tau - (beta_ramp + beta_const);
+        let phi = PI * tau3 / beta_trans;
+
+        // Values at end of Phase II
+        let v1 = a_max / 2.0 * beta_ramp;
+        let s1 = a_max / 2.0 * (beta_ramp * beta_ramp / 2.0 - 2.0 * beta_ramp * beta_ramp / (PI * PI));
+        let v2 = v1 + a_max * beta_const;
+        let s2 = s1 + v1 * beta_const + a_max * beta_const * beta_const / 2.0;
+
+        let a = a_max * phi.cos();
+        let j = -a_max * PI / beta_trans * phi.sin();
+        let v = v2 + a_max * beta_trans / PI * phi.sin();
+        let s = s2 + v2 * tau3 + a_max * beta_trans * beta_trans / (PI * PI) * (1.0 - phi.cos());
+
+        MotionEvaluation { s, v, a, j }
     } else {
-        // Phase V: sine ramp-down (mirror of Phase I)
+        // τ > 0.5: Use symmetry property
+        // s(τ) = 1 - s(1-τ), v(τ) = v(1-τ), a(τ) = -a(1-τ), j(τ) = j(1-τ)
+        let eval_mirror = modified_trapezoid(1.0 - tau);
         MotionEvaluation {
-            s: 1.0 - modified_trapezoid(1.0 - tau).s,
-            v: modified_trapezoid(1.0 - tau).v,
-            a: -modified_trapezoid(1.0 - tau).a,
-            j: modified_trapezoid(1.0 - tau).j,
+            s: 1.0 - eval_mirror.s,
+            v: eval_mirror.v,
+            a: -eval_mirror.a,
+            j: eval_mirror.j,
         }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// POLYNOMIAL 4-5-6-7 (Polynom 7. Grades)
+// Cv = 2.1875, Ca = 7.5132, Cj = 0 at boundaries
+// Guarantees s=0, v=0, a=0, j=0 at τ=0 and τ=1
+// ─────────────────────────────────────────────────────────────
+
+pub fn polynomial_4567(tau: f64) -> MotionEvaluation {
+    let t2 = tau * tau;
+    let t3 = t2 * tau;
+    let t4 = t3 * tau;
+    let t5 = t4 * tau;
+    let t6 = t5 * tau;
+    let t7 = t6 * tau;
+
+    MotionEvaluation {
+        s:  35.0 * t4 -  84.0 * t5 +  70.0 * t6 -  20.0 * t7,
+        v: 140.0 * t3 - 420.0 * t4 + 420.0 * t5 - 140.0 * t6,
+        a: 420.0 * t2 - 1680.0 * t3 + 2100.0 * t4 - 840.0 * t5,
+        j: 840.0 * tau - 5040.0 * t2 + 8400.0 * t3 - 4200.0 * t4,
     }
 }
 
@@ -310,6 +384,15 @@ fn bezier_cubic_accel_only(tau: f64, cx1: f64, cy1: f64, cx2: f64, cy2: f64) -> 
 mod tests {
     use super::*;
 
+    // ── Helper: check boundary conditions for a rise motion law ──
+    fn assert_rise_boundaries(name: &str, eval_fn: impl Fn(f64) -> MotionEvaluation, tol_s: f64) {
+        let at_0 = eval_fn(0.0);
+        assert!(at_0.s.abs() < 1e-10, "{}: s(0) = 0, got {}", name, at_0.s);
+
+        let at_1 = eval_fn(1.0);
+        assert!((at_1.s - 1.0).abs() < tol_s, "{}: s(1) = 1, got {}", name, at_1.s);
+    }
+
     #[test]
     fn vdi2143_cycloidal_coefficients() {
         let eval_mid = cycloidal(0.5);
@@ -330,6 +413,39 @@ mod tests {
         let tau_max_a = (3.0 - 3.0_f64.sqrt()) / 6.0;
         let eval_acc = polynomial_345(tau_max_a);
         assert!((eval_acc.a - 5.773502).abs() < 1e-4);
+    }
+
+    #[test]
+    fn poly345_boundaries() {
+        assert_rise_boundaries("Poly345", polynomial_345, 1e-10);
+        let at_0 = polynomial_345(0.0);
+        let at_1 = polynomial_345(1.0);
+        assert!(at_0.v.abs() < 1e-10, "v(0)=0");
+        assert!(at_1.v.abs() < 1e-10, "v(1)=0");
+        assert!(at_0.a.abs() < 1e-10, "a(0)=0");
+        assert!(at_1.a.abs() < 1e-10, "a(1)=0");
+    }
+
+    #[test]
+    fn poly4567_boundaries() {
+        assert_rise_boundaries("Poly4567", polynomial_4567, 1e-10);
+        let at_0 = polynomial_4567(0.0);
+        let at_1 = polynomial_4567(1.0);
+        // v=0, a=0, j=0 at boundaries
+        assert!(at_0.v.abs() < 1e-10, "v(0)=0");
+        assert!(at_1.v.abs() < 1e-10, "v(1)=0");
+        assert!(at_0.a.abs() < 1e-10, "a(0)=0");
+        assert!(at_1.a.abs() < 1e-10, "a(1)=0");
+        assert!(at_0.j.abs() < 1e-10, "j(0)=0");
+        assert!(at_1.j.abs() < 1e-10, "j(1)=0");
+    }
+
+    #[test]
+    fn poly4567_midpoint() {
+        let at_mid = polynomial_4567(0.5);
+        assert!((at_mid.s - 0.5).abs() < 1e-10, "s(0.5)=0.5");
+        // Cv = 35/16 = 2.1875
+        assert!((at_mid.v - 2.1875).abs() < 1e-6, "Cv = 2.1875, got {}", at_mid.v);
     }
 
     #[test]
@@ -387,18 +503,54 @@ mod tests {
     #[test]
     fn modified_sine_boundaries() {
         let at_0 = modified_sine(0.0);
-        assert!((at_0.s).abs() < 1e-6, "s(0) = 0");
-        
+        assert!(at_0.s.abs() < 1e-10, "s(0) = 0, got {}", at_0.s);
+        assert!(at_0.v.abs() < 1e-10, "v(0) = 0, got {}", at_0.v);
+
         let at_1 = modified_sine(1.0);
-        assert!((at_1.s - 1.0).abs() < 0.1, "s(1) ≈ 1.0, got {}", at_1.s);
+        assert!((at_1.s - 1.0).abs() < 1e-4, "s(1) = 1.0, got {}", at_1.s);
+        assert!(at_1.v.abs() < 1e-4, "v(1) = 0, got {}", at_1.v);
+    }
+
+    #[test]
+    fn modified_sine_monotonic() {
+        // Position should be monotonically increasing for a rise segment
+        let mut prev_s = 0.0;
+        for i in 1..=100 {
+            let tau = i as f64 / 100.0;
+            let eval = modified_sine(tau);
+            assert!(eval.s >= prev_s - 1e-10, "s not monotonic at τ={}: {} < {}", tau, eval.s, prev_s);
+            prev_s = eval.s;
+        }
     }
 
     #[test]
     fn modified_trapezoid_boundaries() {
         let at_0 = modified_trapezoid(0.0);
-        assert!((at_0.s).abs() < 1e-6, "s(0) = 0");
-        
+        assert!(at_0.s.abs() < 1e-10, "s(0) = 0, got {}", at_0.s);
+        assert!(at_0.v.abs() < 1e-10, "v(0) = 0, got {}", at_0.v);
+        assert!(at_0.a.abs() < 1e-10, "a(0) = 0, got {}", at_0.a);
+
         let at_1 = modified_trapezoid(1.0);
-        assert!((at_1.s - 1.0).abs() < 0.1, "s(1) ≈ 1.0, got {}", at_1.s);
+        assert!((at_1.s - 1.0).abs() < 1e-4, "s(1) = 1.0, got {}", at_1.s);
+        assert!(at_1.v.abs() < 1e-4, "v(1) = 0, got {}", at_1.v);
+        assert!(at_1.a.abs() < 1e-4, "a(1) = 0, got {}", at_1.a);
+    }
+
+    #[test]
+    fn modified_trapezoid_symmetry() {
+        // Profile should be symmetric: s(0.5) = 0.5
+        let at_mid = modified_trapezoid(0.5);
+        assert!((at_mid.s - 0.5).abs() < 1e-4, "s(0.5) = 0.5, got {}", at_mid.s);
+    }
+
+    #[test]
+    fn modified_trapezoid_monotonic() {
+        let mut prev_s = 0.0;
+        for i in 1..=100 {
+            let tau = i as f64 / 100.0;
+            let eval = modified_trapezoid(tau);
+            assert!(eval.s >= prev_s - 1e-10, "s not monotonic at τ={}: {} < {}", tau, eval.s, prev_s);
+            prev_s = eval.s;
+        }
     }
 }

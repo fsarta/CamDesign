@@ -62,6 +62,26 @@ export const ContinuityCheck: React.FC<ContinuityCheckProps> = ({ data, segments
         deltaA: Math.abs(pRight.a - pLeft.a),
       });
     }
+
+    // Cyclic continuity check (end -> start)
+    if (data.length > 0 && segments.length > 0) {
+      const firstSegment = segments[0];
+      const lastSegment = segments[segments.length - 1];
+      
+      // If the profile roughly covers a full cycle (e.g. 360 degrees)
+      if (Math.abs(lastSegment.phi_end - firstSegment.phi_start - 360) < 1.0) {
+        const pFirst = data[0];
+        const pLast = data[data.length - 1];
+        boundaries.push({
+          angle: 360,
+          leftName: lastSegment.name,
+          rightName: firstSegment.name + ' (Cycle)',
+          deltaS: Math.abs(pFirst.s - pLast.s),
+          deltaV: Math.abs(pFirst.v - pLast.v),
+          deltaA: Math.abs(pFirst.a - pLast.a),
+        });
+      }
+    }
     return boundaries;
   }, [data, segments]);
 

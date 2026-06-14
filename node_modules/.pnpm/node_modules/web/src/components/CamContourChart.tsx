@@ -122,7 +122,7 @@ export const CamContourChart: React.FC<CamContourChartProps> = ({
                 {camType === 'rotary' && rotaryData ? (
                     <RotaryView data={rotaryData} baseRadius={baseRadius} showPA={showPressureAngle} hoverIdx={hoverIdx} setHoverIdx={setHoverIdx} />
                 ) : linearData ? (
-                    <LinearView data={linearData} showPA={showPressureAngle} hoverIdx={hoverIdx} setHoverIdx={setHoverIdx} />
+                    <LinearView data={linearData} showPA={showPressureAngle} hoverIdx={hoverIdx} setHoverIdx={setHoverIdx} lu={lu} lf={lf} />
                 ) : null}
 
                 {/* Hover tooltip */}
@@ -239,9 +239,11 @@ interface LinearViewProps {
     showPA: boolean;
     hoverIdx: number | null;
     setHoverIdx: (v: number | null) => void;
+    lu: string;
+    lf: (v: number) => number;
 }
 
-const LinearView: React.FC<LinearViewProps> = ({ data, showPA, hoverIdx, setHoverIdx }) => {
+const LinearView: React.FC<LinearViewProps> = ({ data, showPA, hoverIdx, setHoverIdx, lu, lf }) => {
     const svg = useMemo(() => {
         const pts = data.points;
         const maxY = Math.max(...pts.map(p => p.y_upper), ...pts.map(p => Math.abs(p.y_lower)));
@@ -342,13 +344,13 @@ const LinearView: React.FC<LinearViewProps> = ({ data, showPA, hoverIdx, setHove
             )}
 
             {/* X-axis labels */}
-            <text x={svg.pad} y={svg.h - 8} fill="#64748b" fontSize="10" textAnchor="start">0 mm</text>
-            <text x={svg.w - svg.pad} y={svg.h - 8} fill="#64748b" fontSize="10" textAnchor="end">{data.cam_length} mm</text>
-            <text x={svg.w / 2} y={svg.h - 8} fill="#64748b" fontSize="10" textAnchor="middle">{(data.cam_length / 2).toFixed(0)} mm</text>
+            <text x={svg.pad} y={svg.h - 8} fill="#64748b" fontSize="10" textAnchor="start">0 {lu}</text>
+            <text x={svg.w - svg.pad} y={svg.h - 8} fill="#64748b" fontSize="10" textAnchor="end">{lf(data.cam_length).toFixed(1)} {lu}</text>
+            <text x={svg.w / 2} y={svg.h - 8} fill="#64748b" fontSize="10" textAnchor="middle">{lf(data.cam_length / 2).toFixed(0)} {lu}</text>
 
             {/* Y-axis label */}
             <text x={14} y={svg.h / 2} fill="#64748b" fontSize="9" textAnchor="middle" transform={`rotate(-90, 14, ${svg.h / 2})`}>
-                displacement (mm)
+                displacement ({lu})
             </text>
         </svg>
     );

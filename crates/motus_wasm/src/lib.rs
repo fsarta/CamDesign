@@ -8,44 +8,40 @@ use motus_core::cam::calculation::{
     calculate_linear_cam_contour, LinearCamContourResult,
 };
 
-/// Helper: evaluate profile displacements at each angle step
-fn evaluate_displacements(profile: &MotionProfile, degrees_resolution: usize) -> Vec<(f64, f64, f64, f64)> {
-    let mut displacements = Vec::with_capacity(degrees_resolution + 1);
+/// Internal helper: evaluates the profile at `degrees_resolution` steps.
+/// Returns a vector of tuples: (angle_deg, evaluation_struct)
+fn evaluate_profile_internal(profile: &MotionProfile, degrees_resolution: usize) -> Vec<(f64, motus_core::motion::laws::MotionEvaluation)> {
+    let mut results = Vec::with_capacity(degrees_resolution + 1);
 
     for i in 0..=degrees_resolution {
-        let current_angle_deg = (i as f64 / degrees_resolution as f64) * profile.cycle_angle.to_degrees();
-        
-        let mut s = 0.0_f64;
-        let mut ds_dphi = 0.0_f64;
-        let mut d2s_dphi2 = 0.0_f64;
+        let current_angle = (i as f64 / degrees_resolution as f64) * profile.cycle_angle.to_degrees();
+        let mut found_eval = motus_core::motion::laws::MotionEvaluation { s: 0.0, v: 0.0, a: 0.0, j: 0.0 };
 
         for seg in &profile.segments {
-            if current_angle_deg >= seg.phi_start && current_angle_deg <= seg.phi_end {
+            if current_angle >= seg.phi_start && current_angle <= seg.phi_end {
                 let angle_duration = seg.phi_end - seg.phi_start;
                 let tau = if angle_duration > 0.0 {
-                    (current_angle_deg - seg.phi_start) / angle_duration
+                    (current_angle - seg.phi_start) / angle_duration
                 } else {
                     0.0
                 };
-
+                
                 let norm_eval = seg.law.evaluate_normalized(tau);
                 let beta_rad = angle_duration.to_radians();
-
-                s = seg.s_start + seg.stroke * norm_eval.s;
-
+                
+                found_eval.s = seg.s_start + seg.stroke * norm_eval.s;
+                
                 if beta_rad > 0.0 {
-                    ds_dphi = (seg.stroke / beta_rad) * norm_eval.v;
-                    d2s_dphi2 = (seg.stroke / (beta_rad * beta_rad)) * norm_eval.a;
+                     found_eval.v = (seg.stroke / beta_rad) * norm_eval.v;
+                     found_eval.a = (seg.stroke / (beta_rad * beta_rad)) * norm_eval.a;
+                     found_eval.j = (seg.stroke / (beta_rad * beta_rad * beta_rad)) * norm_eval.j;
                 }
-
                 break;
             }
         }
-
-        displacements.push((current_angle_deg, s, ds_dphi, d2s_dphi2));
+        results.push((current_angle, found_eval));
     }
-
-    displacements
+    results
 }
 
 #[wasm_bindgen(start)]
@@ -71,7 +67,6 @@ pub fn evaluate_segment(val: JsValue, tau_steps: usize) -> Result<JsValue, JsVal
         .map_err(|e| JsValue::from_str(&format!("Serialization error: {}", e)))?;
         
     let mut results = Vec::with_capacity(tau_steps + 1);
-    
     for i in 0..=tau_steps {
         let tau = (i as f64) / (tau_steps as f64);
         let eval = segment.law.evaluate_normalized(tau);
@@ -80,7 +75,6 @@ pub fn evaluate_segment(val: JsValue, tau_steps: usize) -> Result<JsValue, JsVal
     
     let res = serde_wasm_bindgen::to_value(&results)
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
-        
     Ok(res)
 }
 
@@ -89,43 +83,11 @@ pub fn evaluate_profile(val: JsValue, degrees_resolution: usize) -> Result<JsVal
     let profile: MotionProfile = serde_wasm_bindgen::from_value(val)
         .map_err(|e| JsValue::from_str(&format!("Profile Deserialization error: {}", e)))?;
 
-    let mut global_results = Vec::with_capacity(degrees_resolution + 1);
-
-    for i in 0..=degrees_resolution {
-        let current_angle = (i as f64 / degrees_resolution as f64) * profile.cycle_angle.to_degrees();
-        
-        let mut found_eval = motus_core::motion::laws::MotionEvaluation { s: 0.0, v: 0.0, a: 0.0, j: 0.0 };
-        
-        for seg in &profile.segments {
-            if current_angle >= seg.phi_start && current_angle <= seg.phi_end {
-                let angle_duration = seg.phi_end - seg.phi_start;
-                let tau = if angle_duration > 0.0 {
-                    (current_angle - seg.phi_start) / angle_duration
-                } else {
-                    0.0
-                };
-                
-                let norm_eval = seg.law.evaluate_normalized(tau);
-                let beta_rad = angle_duration.to_radians();
-                
-                found_eval.s = seg.s_start + seg.stroke * norm_eval.s;
-                
-                if beta_rad > 0.0 {
-                     found_eval.v = (seg.stroke / beta_rad) * norm_eval.v;
-                     found_eval.a = (seg.stroke / (beta_rad * beta_rad)) * norm_eval.a;
-                     found_eval.j = (seg.stroke / (beta_rad * beta_rad * beta_rad)) * norm_eval.j;
-                }
-                
-                break;
-            }
-        }
-        
-        global_results.push(found_eval);
-    }
+    let internal_results = evaluate_profile_internal(&profile, degrees_resolution);
+    let global_results: Vec<_> = internal_results.into_iter().map(|(_, eval)| eval).collect();
 
     let res = serde_wasm_bindgen::to_value(&global_results)
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
-
     Ok(res)
 }
 
@@ -141,10 +103,55 @@ pub fn evaluate_cam_contour(
     let profile: MotionProfile = serde_wasm_bindgen::from_value(profile_val)
         .map_err(|e| JsValue::from_str(&format!("Profile Deserialization error: {}", e)))?;
 
-    let displacements = evaluate_displacements(&profile, degrees_resolution);
+    let internal_results = evaluate_profile_internal(&profile, degrees_resolution);
+    let displacements: Vec<(f64, f64, f64, f64)> = internal_results
+        .into_iter()
+        .map(|(angle, eval)| (angle, eval.s, eval.v, eval.a))
+        .collect();
+
     let cam_result = calculate_cam_contour(base_radius, roller_radius, offset, &displacements);
 
     let res = serde_wasm_bindgen::to_value(&cam_result)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+    Ok(res)
+}
+
+#[wasm_bindgen]
+pub fn evaluate_dynamics(
+    profile_val: JsValue,
+    mass: f64,
+    rpm: f64,
+    preload: f64,
+    stiffness: f64,
+    damping: f64,
+    external_force: f64,
+    cam_thickness: f64,
+    roller_radius: f64,
+    base_radius: f64,
+    offset: f64,
+    e_eq: f64,
+    degrees_resolution: usize,
+) -> Result<JsValue, JsValue> {
+    let profile: motus_core::motion::profile::MotionProfile = serde_wasm_bindgen::from_value(profile_val)
+        .map_err(|e| JsValue::from_str(&format!("Profile Deserialization error: {}", e)))?;
+
+    let internal_results = evaluate_profile_internal(&profile, degrees_resolution);
+    let displacements: Vec<(f64, f64, f64, f64)> = internal_results
+        .iter()
+        .map(|(angle, eval)| (*angle, eval.s, eval.v, eval.a))
+        .collect();
+
+    let geometry = calculate_cam_contour(base_radius, roller_radius, offset, &displacements);
+    let geom_data: Vec<(f64, f64)> = geometry.points.iter()
+        .map(|p| (p.pressure_angle, p.curvature_radius))
+        .collect();
+
+    let dyn_result = motus_core::cam::dynamics::calculate_dynamics(
+        mass, rpm, preload, stiffness, damping, external_force, cam_thickness, roller_radius, e_eq, &displacements, &geom_data
+    );
+
+    let res = serde_wasm_bindgen::to_value(&dyn_result)
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
     Ok(res)
@@ -162,7 +169,12 @@ pub fn evaluate_linear_cam_contour(
     let profile: MotionProfile = serde_wasm_bindgen::from_value(profile_val)
         .map_err(|e| JsValue::from_str(&format!("Profile Deserialization error: {}", e)))?;
 
-    let displacements = evaluate_displacements(&profile, degrees_resolution);
+    let internal_results = evaluate_profile_internal(&profile, degrees_resolution);
+    let displacements: Vec<(f64, f64, f64, f64)> = internal_results
+        .into_iter()
+        .map(|(angle, eval)| (angle, eval.s, eval.v, eval.a))
+        .collect();
+
     let cam_result = calculate_linear_cam_contour(cam_length, roller_radius, groove_depth, &displacements);
 
     let res = serde_wasm_bindgen::to_value(&cam_result)

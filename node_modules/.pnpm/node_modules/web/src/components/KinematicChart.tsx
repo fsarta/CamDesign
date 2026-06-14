@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
     LineChart,
     Line,
@@ -6,7 +6,7 @@ import {
     YAxis,
     CartesianGrid,
     Tooltip,
-    ReferenceLine,
+    ReferenceArea,
     ResponsiveContainer
 } from 'recharts';
 import type { UnitSystem } from '../units';
@@ -63,15 +63,22 @@ const SyncCursorLine = (props: any) => {
 
 // Custom invisible Tooltip content that captures active data for the info bar
 const DataCapture = ({ active, payload, label, onCapture }: any) => {
+    const lastLabelRef = useRef<any>(null);
+
     useEffect(() => {
         if (active && payload && payload.length > 0) {
-            onCapture({
-                angle: label,
-                position: payload[0]?.payload?.position,
-                velocity: payload[0]?.payload?.velocity,
-                acceleration: payload[0]?.payload?.acceleration,
-                jerk: payload[0]?.payload?.jerk,
-            });
+            if (lastLabelRef.current !== label) {
+                lastLabelRef.current = label;
+                onCapture({
+                    angle: label,
+                    position: payload[0]?.payload?.position,
+                    velocity: payload[0]?.payload?.velocity,
+                    acceleration: payload[0]?.payload?.acceleration,
+                    jerk: payload[0]?.payload?.jerk,
+                });
+            }
+        } else if (!active && lastLabelRef.current !== null) {
+            lastLabelRef.current = null;
         }
     }, [active, payload, label, onCapture]);
     return null; // Tooltip renders nothing — info bar handles display
@@ -223,20 +230,25 @@ export const KinematicChart: React.FC<KinematicChartProps> = ({
                             </div>
 
                             <ResponsiveContainer width="100%" height="100%">
-                                <LineChart
-                                    data={chartData}
-                                    syncId={SYNC_ID}
-                                    margin={{
-                                        top: isVertical ? 16 : 20,
-                                        right: 10,
-                                        left: 0,
-                                        bottom: showXAxis ? 0 : -20,
-                                    }}
-                                    onMouseLeave={handleMouseLeave}
-                                >
+                                    <LineChart
+                                        data={chartData}
+                                        margin={{
+                                            top: isVertical ? 16 : 20,
+                                            right: 10,
+                                            left: 0,
+                                            bottom: showXAxis ? 0 : -20,
+                                        }}
+                                        onMouseLeave={handleMouseLeave}
+                                    >
+                                    <defs>
+                                        <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+                                            <feGaussianBlur stdDeviation="2" result="blur" />
+                                            <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                                        </filter>
+                                    </defs>
                                     <CartesianGrid
                                         strokeDasharray="3 3"
-                                        stroke="rgba(255,255,255,0.06)"
+                                        stroke="#333"
                                         vertical={false}
                                     />
                                     <XAxis
@@ -261,30 +273,20 @@ export const KinematicChart: React.FC<KinematicChartProps> = ({
                                         isAnimationActive={false}
                                     />
 
-                                    {/* Segment boundary lines */}
-                                    {boundaryAngles.map(angle => (
-                                        <ReferenceLine
-                                            key={`boundary-${angle}`}
-                                            x={angle}
-                                            stroke="rgba(255,255,255,0.15)"
-                                            strokeDasharray="4 4"
-                                            strokeWidth={1}
-                                        />
-                                    ))}
-
                                     {/* Data line */}
                                     <Line
                                         type="monotone"
                                         dataKey={cfg.key}
                                         stroke={cfg.color}
-                                        strokeWidth={isVertical ? 1.5 : 2}
+                                        strokeWidth={2}
                                         dot={false}
                                         isAnimationActive={false}
+                                        filter="url(#glow)"
                                         activeDot={{
                                             r: 3,
                                             stroke: cfg.color,
                                             strokeWidth: 2,
-                                            fill: '#0f172a',
+                                            fill: '#0F1115',
                                         }}
                                     />
                                 </LineChart>
