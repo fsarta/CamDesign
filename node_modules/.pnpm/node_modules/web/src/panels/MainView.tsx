@@ -11,7 +11,7 @@ export const MainView: React.FC = () => {
   const {
     activeTab, setActiveTab, chartLayout, setChartLayout,
     evalResult, dynResult, segmentBoundaries, unitSystem, rpm, locale,
-    camType, camContour, linearContour, camBaseRadius
+    camType, camContour, linearContour, camBaseRadius, camOffset, camRollerRadius
   } = useAppContext();
 
   return (
@@ -57,6 +57,8 @@ export const MainView: React.FC = () => {
             camData={camContour}
             profileData={evalResult}
             baseRadius={camBaseRadius}
+            camOffset={camOffset}
+            camRollerRadius={camRollerRadius}
           />
         )}
 

@@ -6,9 +6,11 @@ interface CamAnimationProps {
   camData: CamContourData | null;
   profileData: MotionPoint[];
   baseRadius: number;
+  camOffset: number;
+  camRollerRadius: number;
 }
 
-export const CamAnimation: React.FC<CamAnimationProps> = ({ camData, profileData, baseRadius }) => {
+export const CamAnimation: React.FC<CamAnimationProps> = ({ camData, profileData, baseRadius, camOffset, camRollerRadius }) => {
   const [playing, setPlaying] = useState(false);
   const [angle, setAngle] = useState(0);
   const [speed, setSpeed] = useState(1);
@@ -82,9 +84,16 @@ export const CamAnimation: React.FC<CamAnimationProps> = ({ camData, profileData
     );
   }
 
-  // Follower position
-  const followerBaseY = svg.cy - (baseRadius + 5) * svg.scale;
-  const followerY = followerBaseY - currentDisplacement * svg.scale;
+  // Follower position (Horizontal on the Right)
+  const s0 = Math.sqrt(Math.max(0, baseRadius * baseRadius - camOffset * camOffset));
+  const alpha_0_rad = s0 > 1e-12 ? Math.atan(camOffset / s0) : 0;
+  const alpha_0_deg = alpha_0_rad * 180 / Math.PI;
+  
+  const followerX = svg.cx + (s0 + currentDisplacement) * svg.scale;
+  const followerY = svg.cy + camOffset * svg.scale;
+  
+  // Roller physical size on screen
+  const visualRollerRadius = Math.max(2, camRollerRadius * svg.scale);
 
   return (
     <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -143,7 +152,7 @@ export const CamAnimation: React.FC<CamAnimationProps> = ({ camData, profileData
           <rect width="100%" height="100%" fill="url(#cad-grid)" rx="8" />
 
           {/* Cam - rotated by current angle */}
-          <g transform={`rotate(${-angle}, ${svg.cx}, ${svg.cy})`}>
+          <g transform={`rotate(${angle + alpha_0_deg}, ${svg.cx}, ${svg.cy})`}>
             <path d={svg.camPath} fill="rgba(0, 229, 255, 0.05)" stroke="#00E5FF" strokeWidth="2" strokeLinejoin="round" filter="url(#anim-glow)" />
           </g>
 
@@ -155,16 +164,16 @@ export const CamAnimation: React.FC<CamAnimationProps> = ({ camData, profileData
           <line x1={svg.cx} y1={svg.cy - 6} x2={svg.cx} y2={svg.cy + 6} stroke="rgba(255,255,255,0.4)" strokeWidth="0.5" />
 
           {/* Follower guide line */}
-          <line x1={svg.cx} y1={0} x2={svg.cx} y2={svg.cy - svg.br}
+          <line x1={svg.cx + svg.br} y1={followerY} x2={400} y2={followerY}
             stroke="rgba(255,255,255,0.1)" strokeWidth="1" strokeDasharray="3 3" />
 
           {/* Follower (translating) */}
           <g filter="url(#anim-glow)">
-            {/* Follower rod */}
-            <line x1={svg.cx} y1={followerY} x2={svg.cx} y2={followerY - 60}
+            {/* Follower rod (starts exactly at the roller edge so it doesn't cross inside it) */}
+            <line x1={followerX + visualRollerRadius} y1={followerY} x2={followerX + Math.max(60, visualRollerRadius + 20)} y2={followerY}
               stroke="#e6edf3" strokeWidth="3" strokeLinecap="round" />
             {/* Roller */}
-            <circle cx={svg.cx} cy={followerY} r={8} fill="rgba(255, 255, 255, 0.1)" stroke="#e6edf3" strokeWidth="2" />
+            <circle cx={followerX} cy={followerY} r={visualRollerRadius} fill="rgba(255, 255, 255, 0.1)" stroke="#e6edf3" strokeWidth="2" />
           </g>
 
           {/* Angle arc indicator */}
