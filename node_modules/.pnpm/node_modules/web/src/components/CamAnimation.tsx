@@ -131,31 +131,40 @@ export const CamAnimation: React.FC<CamAnimationProps> = ({ camData, profileData
       {/* Animation canvas */}
       <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>
         <svg viewBox="0 0 400 400" style={{ width: '100%', height: '100%' }}>
-          <rect width="100%" height="100%" fill="rgba(0,0,0,0.1)" rx="8" />
+          <defs>
+            <filter id="anim-glow" x="-20%" y="-20%" width="140%" height="140%">
+              <feGaussianBlur stdDeviation="2" result="blur" />
+              <feComposite in="SourceGraphic" in2="blur" operator="over" />
+            </filter>
+            <pattern id="cad-grid" width="20" height="20" patternUnits="userSpaceOnUse">
+              <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#333" strokeWidth="0.5" />
+            </pattern>
+          </defs>
+          <rect width="100%" height="100%" fill="url(#cad-grid)" rx="8" />
 
           {/* Cam - rotated by current angle */}
           <g transform={`rotate(${-angle}, ${svg.cx}, ${svg.cy})`}>
-            <path d={svg.camPath} fill="rgba(59,130,246,0.15)" stroke="#3b82f6" strokeWidth="2" strokeLinejoin="round" />
+            <path d={svg.camPath} fill="rgba(0, 229, 255, 0.05)" stroke="#00E5FF" strokeWidth="2" strokeLinejoin="round" filter="url(#anim-glow)" />
           </g>
 
           {/* Base circle (static, for reference) */}
-          <circle cx={svg.cx} cy={svg.cy} r={svg.br} fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="1" strokeDasharray="4 4" />
+          <circle cx={svg.cx} cy={svg.cy} r={svg.br} fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="1" strokeDasharray="4 4" />
 
           {/* Center mark */}
-          <line x1={svg.cx - 6} y1={svg.cy} x2={svg.cx + 6} y2={svg.cy} stroke="rgba(255,255,255,0.2)" strokeWidth="0.5" />
-          <line x1={svg.cx} y1={svg.cy - 6} x2={svg.cx} y2={svg.cy + 6} stroke="rgba(255,255,255,0.2)" strokeWidth="0.5" />
+          <line x1={svg.cx - 6} y1={svg.cy} x2={svg.cx + 6} y2={svg.cy} stroke="rgba(255,255,255,0.4)" strokeWidth="0.5" />
+          <line x1={svg.cx} y1={svg.cy - 6} x2={svg.cx} y2={svg.cy + 6} stroke="rgba(255,255,255,0.4)" strokeWidth="0.5" />
 
           {/* Follower guide line */}
-          <line x1={svg.cx} y1={0} x2={svg.cx} y2={svg.cy - svg.br + 10}
+          <line x1={svg.cx} y1={0} x2={svg.cx} y2={svg.cy - svg.br}
             stroke="rgba(255,255,255,0.1)" strokeWidth="1" strokeDasharray="3 3" />
 
           {/* Follower (translating) */}
-          <g>
+          <g filter="url(#anim-glow)">
             {/* Follower rod */}
-            <line x1={svg.cx} y1={followerY} x2={svg.cx} y2={followerY - 40}
-              stroke="#10b981" strokeWidth="3" strokeLinecap="round" />
+            <line x1={svg.cx} y1={followerY} x2={svg.cx} y2={followerY - 60}
+              stroke="#e6edf3" strokeWidth="3" strokeLinecap="round" />
             {/* Roller */}
-            <circle cx={svg.cx} cy={followerY} r={6} fill="rgba(16,185,129,0.3)" stroke="#10b981" strokeWidth="2" />
+            <circle cx={svg.cx} cy={followerY} r={8} fill="rgba(255, 255, 255, 0.1)" stroke="#e6edf3" strokeWidth="2" />
           </g>
 
           {/* Angle arc indicator */}
